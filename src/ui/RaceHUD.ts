@@ -123,12 +123,7 @@ export class RaceHUD {
   show(race: RaceManager, cameraMode: CameraMode, isMuted: boolean): void {
     this.root.classList.remove('hidden');
     if (!this.builtDom) {
-      this.touchControlsEnabled =
-        this.mobileMode ||
-        (typeof window !== 'undefined' &&
-          ('ontouchstart' in window ||
-            navigator.maxTouchPoints > 0 ||
-            (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches)));
+      this.touchControlsEnabled = this.mobileMode;
       this.buildDOM();
     }
     this.applyTouchState();

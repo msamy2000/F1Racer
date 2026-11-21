@@ -227,7 +227,7 @@ export class MenuUI {
     if (this.screen === 'home') {
       body = this.renderHome(selectedDriver, selectedTeam);
     } else if (this.screen === 'driver') {
-      body = this.renderDriverSelect();
+      body = this.renderDriverSelect(selectedDriver, selectedTeam);
     } else if (this.screen === 'setup') {
       body = this.renderSetup();
     } else {
@@ -284,8 +284,8 @@ export class MenuUI {
     return `
       <div class="home-grid">
         <div class="hero-panel">
-          <div class="hero-eyebrow">Official 2026 Regulation Era • Special Driver Edition</div>
-          <h1 class="hero-headline">Race The <span>2026 Grid</span> As Yahia Samy #17</h1>
+          <div class="hero-eyebrow">Official 2026 Regulation Era • 12-Driver Grid</div>
+          <h1 class="hero-headline">Race The <span>2026 Grid</span> As ${selectedDriver.name} #${selectedDriver.number}</h1>
           <p style="font-size:14px;color:var(--text-muted);line-height:1.45;">
             Battle World Champion Kimi Antonelli, Max Verstappen, Lando Norris, and the 2026 field across 4 real circuits — featuring Active Aero wings, manual Boost, and 1-second Overtake Mode.
           </p>
@@ -328,8 +328,8 @@ export class MenuUI {
                  alt="${selectedDriver.name}"
                  style="width:74px;height:74px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,0.2);" />
             <div>
-              <div style="font-size:11px;color:var(--cyan-tech);font-weight:800;letter-spacing:0.1em;">3D SHOWROOM ACTIVE</div>
-              <div style="font-size:19px;font-weight:900;">${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name}</div>
+              <div style="font-size:11px;color:var(--cyan-tech);font-weight:700;letter-spacing:0.08em;">3D SHOWROOM ACTIVE</div>
+              <div style="font-size:19px;font-weight:800;">${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name}</div>
               <div style="font-size:13px;color:var(--text-muted);">${selectedTeam.name}</div>
             </div>
           </div>
@@ -341,7 +341,10 @@ export class MenuUI {
     `;
   }
 
-  private renderDriverSelect(): string {
+  private renderDriverSelect(
+    selectedDriver: typeof YAHIA_DRIVER,
+    selectedTeam: ReturnType<typeof resolveDriverTeam>,
+  ): string {
     const renderFlexHeroCard = (driver: typeof YAHIA_DRIVER, badgeLabel: string) => {
       const selected = this.playerDriverId === driver.id;
       const activeTeamId = this.flexTeamByDriver[driver.id] ?? driver.teamId;
@@ -377,22 +380,22 @@ export class MenuUI {
           <div style="display:flex;flex-direction:column;justify-content:space-between;">
             <div>
               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                <span style="font-size:11px;font-weight:900;letter-spacing:0.12em;color:#FFD700;text-transform:uppercase;">
+                <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#FFD700;text-transform:uppercase;">
                   ${badgeLabel}
                 </span>
-                <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${selected ? '#10b981' : 'var(--text-muted)'};">
+                <span class="driver-select-pill ${selected ? 'is-selected' : ''}">
                   ${selected ? '● SELECTED' : 'CLICK TO DRIVE'}
                 </span>
               </div>
-              <div class="hero-driver-name" style="font-size:24px;font-weight:900;margin-top:2px;">
-                ${driver.flag} #${driver.number} ${driver.name} <span style="font-size:14px;color:var(--text-muted);">(${driver.code})</span>
+              <div class="hero-driver-name" style="font-size:22px;font-weight:800;margin-top:2px;">
+                ${driver.flag} #${driver.number} ${driver.name} <span style="font-size:13px;font-weight:600;color:var(--text-muted);">(${driver.code})</span>
               </div>
               <div class="hero-driver-desc" style="font-size:12px;color:var(--text-muted);">
                 Sign with Mercedes, Red Bull, or McLaren — suit, 3D helmet &amp; car livery update live!
               </div>
             </div>
             <div>
-              <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:800;margin-top:6px;">
+              <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-top:6px;">
                 Choose Constructor Seat:
               </div>
               <div class="flex-team-pills">${pills}</div>
@@ -422,11 +425,16 @@ export class MenuUI {
               <div class="driver-thumb">
                 <img src="${getDriverPortraitPath(d)}" alt="${d.name}" />
               </div>
-              <div style="min-width:0;">
-                <div style="font-size:11px;font-weight:800;color:${team.uiColor};text-transform:uppercase;">
-                  ${team.shortName} • #${d.number}
+              <div style="min-width:0;flex:1;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                  <span style="font-size:11px;font-weight:700;color:${team.uiColor};text-transform:uppercase;">
+                    ${team.shortName} • #${d.number}
+                  </span>
+                  <span class="driver-select-pill ${isSel ? 'is-selected' : ''}">
+                    ${isSel ? '● SELECTED' : 'SELECT'}
+                  </span>
                 </div>
-                <div style="font-size:16px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.flag} ${d.name}</div>
+                <div style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${d.flag} ${d.name}</div>
                 <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">
                   2026: P${d.standing2026} • ${d.points2026} pts • ${d.wins2026}W
                 </div>
@@ -446,7 +454,7 @@ export class MenuUI {
     return `
       <div class="section-header">
         <div>
-          <div class="brand-sub">Step 1 of 2 • 2026 Top-3 Teams + Flex Star Seat</div>
+          <div class="brand-sub">Step 1 of 2 • Selected: ${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}</div>
           <div class="section-title">Select Your Driver</div>
         </div>
         <div style="display:flex;gap:10px;">
@@ -478,7 +486,7 @@ export class MenuUI {
              ${isChamp ? '' : `data-action="pick-circuit" data-circuit="${cid}"`}
              style="${isChamp ? 'cursor:default;opacity:0.92;' : ''}">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span style="font-size:15px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.flag} ${c.name}</span>
+            <span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.flag} ${c.name}</span>
             <span style="font-size:11px;font-weight:800;white-space:nowrap;flex-shrink:0;color:${c.atmosphere === 'vegas-night' ? '#00E5FF' : '#98a3b8'};">
               ${c.atmosphere === 'vegas-night' ? '🌙 NIGHT RACE' : `ROUND ${idx + 1}`}
             </span>
@@ -606,12 +614,12 @@ export class MenuUI {
         const stepClass = entry.position === 1 ? 'p1' : entry.position === 2 ? 'p2' : 'p3';
         return `
           <div class="podium-card ${stepClass}" style="border-top:4px solid ${team.primaryColor};">
-            <div style="font-size:13px;font-weight:900;letter-spacing:0.08em;color:${entry.position === 1 ? '#FFD700' : entry.position === 2 ? '#e2e8f0' : '#f59e0b'};margin-bottom:8px;">
+            <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;color:${entry.position === 1 ? '#FFD700' : entry.position === 2 ? '#e2e8f0' : '#f59e0b'};margin-bottom:8px;">
               ${medal}
             </div>
             <img src="${portrait}" alt="${entry.driver.name}"
                  style="width:${entry.position === 1 ? 140 : 116}px;height:${entry.position === 1 ? 140 : 116}px;border-radius:14px;object-fit:cover;margin:0 auto 8px;display:block;border:3px solid ${entry.position === 1 ? '#FFD700' : team.primaryColor};box-shadow:0 8px 24px rgba(0,0,0,0.45);" />
-            <div style="font-size:${entry.position === 1 ? 20 : 17}px;font-weight:900;">${entry.driver.flag} ${entry.driver.name}</div>
+            <div style="font-size:${entry.position === 1 ? 20 : 17}px;font-weight:700;">${entry.driver.flag} ${entry.driver.name}</div>
             <div style="font-size:12px;color:var(--text-muted);">${team.shortName} • +${entry.pointsAwarded} pts</div>
             <div class="podium-step-base ${stepClass}">${entry.position}</div>
           </div>
@@ -673,7 +681,7 @@ export class MenuUI {
             ${
               nextCircuit
                 ? `<button class="btn-primary" data-action="next-champ-round">Next Round: ${nextCircuit.name} →</button>`
-                : `<span style="color:#FFD700;font-weight:900;">🏆 WORLD TOUR COMPLETE! CHAMPION: ${sortedStandings[0].driver.name.toUpperCase()}</span>`
+                : `<span style="color:#FFD700;font-weight:700;">🏆 WORLD TOUR COMPLETE! CHAMPION: ${sortedStandings[0].driver.name.toUpperCase()}</span>`
             }
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;font-size:12px;">
@@ -736,6 +744,18 @@ export class MenuUI {
   }
 
   private bindEvents(): void {
+    const carousel = this.root.querySelector<HTMLElement>('.drivers-carousel-wrap');
+    carousel?.addEventListener(
+      'wheel',
+      (we) => {
+        if (carousel.scrollWidth > carousel.clientWidth && Math.abs(we.deltaY) > Math.abs(we.deltaX)) {
+          carousel.scrollLeft += we.deltaY;
+          we.preventDefault();
+        }
+      },
+      { passive: false },
+    );
+
     this.root.querySelectorAll<HTMLImageElement>('img[data-fallback-src]').forEach((img) => {
       img.addEventListener('error', () => {
         const fb = img.dataset.fallbackSrc;

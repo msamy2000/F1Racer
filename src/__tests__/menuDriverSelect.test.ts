@@ -122,6 +122,7 @@ function createMenuHarness() {
     showroomCalls,
     findAction,
     getCardImgSrc,
+    getHtml: () => currentHtml,
   };
 }
 
@@ -175,11 +176,45 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     menu.destroy();
   });
 
+  it('allows selecting all 12 drivers including Kimi Antonelli, Max Verstappen, Hamilton and Leclerc', () => {
+    const { menu, showroomCalls, findAction, getHtml } = createMenuHarness();
+    menu.screen = 'driver';
+    menu.show();
+
+    for (const [did, expectedTeam] of [
+      ['antonelli', 'mercedes'],
+      ['verstappen', 'redbull'],
+      ['norris', 'mclaren'],
+      ['hamilton', 'ferrari'],
+      ['leclerc', 'ferrari'],
+    ] as const) {
+      findAction('pick-driver', did)?.click();
+      expect(menu.playerDriverId).toBe(did);
+      expect(showroomCalls.at(-1)?.driverId).toBe(did);
+
+      // Selected driver card renders "● SELECTED" and appears in header
+      const html = getHtml();
+      const idx = html.indexOf(`data-driver="${did}"`);
+      expect(idx).toBeGreaterThan(-1);
+      const tagStart = html.lastIndexOf('<div', idx);
+      const cardSlice = html.slice(tagStart, idx + 700);
+      expect(cardSlice).toContain('● SELECTED');
+      expect(cardSlice).toContain('driver-card selected');
+      expect(html).toContain(expectedTeam === 'redbull' ? 'Red Bull' : expectedTeam === 'mercedes' ? 'Mercedes' : expectedTeam === 'mclaren' ? 'McLaren' : 'Ferrari');
+
+      // Ensure flex stars are unselected when an official 2026 grid driver is chosen
+      const yIdx = html.indexOf('data-driver="yahia"');
+      expect(html.slice(yIdx, yIdx + 850)).not.toContain('● SELECTED');
+    }
+
+    menu.destroy();
+  });
+
   it('precaches all 6 flex-star grid portraits in sw.js without blocking image cache writes', async () => {
     const fs = await loadFs();
     const sw = fs.readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf-8');
     expect(sw).toMatch(/f1-2026-world-tour-v\d+/);
-    expect(sw).toContain('f1-2026-world-tour-v5');
+    expect(sw).toContain('f1-2026-world-tour-v6');
     for (const name of [
       'yahia-mercedes.png',
       'yahia-redbull.png',

@@ -54,6 +54,38 @@ describe('DeviceProfile — Adaptive Laptop vs. Mobile Screen & Orientation Dete
     expect(isPortraitMobile()).toBe(true);
   });
 
+  it('detects Windows touchscreen laptops as Laptop UI (false) and iPadOS touch as Mobile UI (true)', () => {
+    // Windows Chrome on touchscreen laptop (1280x720 with mouse/trackpad primary pointer)
+    setEnv({
+      width: 1280,
+      height: 720,
+      ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134.0.0.0 Safari/537.36',
+      coarse: false,
+      maxTouchPoints: 10,
+    });
+    expect(detectIsMobileUI()).toBe(false);
+
+    // 1536x864 Windows 11 touchscreen laptop at 125% scaling
+    setEnv({
+      width: 1536,
+      height: 864,
+      ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134.0.0.0 Safari/537.36',
+      coarse: false,
+      maxTouchPoints: 10,
+    });
+    expect(detectIsMobileUI()).toBe(false);
+
+    // iPadOS Safari reports Macintosh UA + multi-touch
+    setEnv({
+      width: 1180,
+      height: 820,
+      ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+      coarse: true,
+      maxTouchPoints: 5,
+    });
+    expect(detectIsMobileUI()).toBe(true);
+  });
+
   it('detects coarse-pointer tablet/phone viewports and narrow windows cleanly', () => {
     setEnv({ width: 932, height: 430, coarse: true, maxTouchPoints: 5 });
     expect(detectIsMobileUI()).toBe(true);

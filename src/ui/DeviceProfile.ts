@@ -11,16 +11,21 @@ export function detectIsMobileUI(): boolean {
   if (typeof window === 'undefined') return false;
 
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  const maxTouchPoints = typeof navigator !== 'undefined' ? navigator.maxTouchPoints || 0 : 0;
+
   if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) {
     return true;
   }
 
-  const maxTouchPoints = typeof navigator !== 'undefined' ? navigator.maxTouchPoints || 0 : 0;
-  const coarsePointer =
-    (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) ||
-    maxTouchPoints > 0;
+  // iPadOS Safari reports Macintosh UA with multi-touch
+  if (ua.includes('Macintosh') && maxTouchPoints > 1) {
+    return true;
+  }
 
-  if (coarsePointer && Math.min(window.innerWidth, window.innerHeight) <= 960) {
+  // Honor primary pointer: coarse only (do not classify Windows touchscreen laptops as mobile)
+  const primaryCoarse =
+    typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  if (primaryCoarse && Math.min(window.innerWidth, window.innerHeight) <= 960) {
     return true;
   }
 
