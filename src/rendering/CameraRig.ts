@@ -44,18 +44,21 @@ export class CameraRig {
     this.camera.updateProjectionMatrix();
   }
 
-  updateMenuShowroom(clockSec: number): void {
+  updateMenuShowroom(clockSec: number, isMobileUI = false): void {
     const angle = clockSec * 0.35;
-    const radius = 5.1;
+    const radius = isMobileUI ? 5.4 : 5.1;
+    const centerX = isMobileUI ? 0 : -1.45;
+    const baseY = isMobileUI ? 1.85 : 1.75;
+    const lookY = isMobileUI ? 0.25 : 0.42;
     this.camera.up.set(0, 1, 0);
     this.camera.fov = 44;
     this.camera.updateProjectionMatrix();
     this.camera.position.set(
-      Math.sin(angle) * radius - 1.45,
-      1.75 + Math.sin(clockSec * 0.6) * 0.15,
+      Math.sin(angle) * radius + centerX,
+      baseY + Math.sin(clockSec * 0.6) * 0.15,
       Math.cos(angle) * radius,
     );
-    this.camera.lookAt(-1.45, 0.42, 0);
+    this.camera.lookAt(centerX, lookY, 0);
   }
 
   updateVictoryOrbit(car: CarState, clockSec: number): void {

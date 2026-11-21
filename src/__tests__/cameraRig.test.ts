@@ -137,4 +137,16 @@ describe('CameraRig — Modes, Zero-Lag Onboard Lock, Showroom & 3D Framing', ()
     expect(p0.distanceTo(p1)).toBeGreaterThan(1.5);
     expect(rig.camera.fov).toBe(46);
   });
+
+  it('centers 3D Showroom car above mobile dock when updateMenuShowroom(clockSec, true) is active', () => {
+    const rig = new CameraRig(16 / 9);
+    rig.updateMenuShowroom(0, false);
+    const desktopX = rig.camera.position.x;
+    rig.updateMenuShowroom(0, true);
+    const mobileX = rig.camera.position.x;
+
+    expect(desktopX).toBeCloseTo(-1.45, 4);
+    expect(mobileX).toBeCloseTo(0, 4);
+    expect(rig.camera.position.y).toBeCloseTo(1.85, 4);
+  });
 });

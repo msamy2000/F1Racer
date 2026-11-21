@@ -43,16 +43,22 @@ export class RaceHUD {
   private tireTextEl!: HTMLElement;
   private pitBadgeEl!: HTMLElement;
   private cameraLabelEl!: HTMLElement;
+  private pauseBtnEl!: HTMLElement;
   private muteBtnEl!: HTMLElement;
   private touchToggleBtnEl!: HTMLElement;
   private touchLayerEl!: HTMLElement;
   private touchBoostBtnEl!: HTMLElement;
   private touchBoostPctEl!: HTMLElement;
-  private touchAutoGasBtnEl!: HTMLElement;
-  private touchGasBtnEl!: HTMLElement;
+  private steerWheelEl!: HTMLElement;
+  private steerKnobEl!: HTMLElement;
+  private mPosEl!: HTMLElement;
+  private mSpeedEl!: HTMLElement;
+  private mGearEl!: HTMLElement;
+  private mLapEl!: HTMLElement;
+  private mErsFillEl!: HTMLElement;
   private pauseModalEl!: HTMLElement;
+  private mobileMode = false;
   private touchControlsEnabled = false;
-  private autoGasEnabled = true;
 
   private minimapCanvas!: HTMLCanvasElement;
   private minimapCtx!: CanvasRenderingContext2D;
@@ -69,19 +75,28 @@ export class RaceHUD {
     this.callbacks = callbacks;
   }
 
+  setMobileMode(isMobile: boolean): void {
+    this.mobileMode = isMobile;
+    this.touchControlsEnabled = isMobile;
+    if (this.builtDom) {
+      this.applyTouchState();
+    }
+  }
+
   show(race: RaceManager, cameraMode: CameraMode, isMuted: boolean): void {
     this.root.classList.remove('hidden');
     if (!this.builtDom) {
       this.touchControlsEnabled =
-        typeof window !== 'undefined' &&
-        ('ontouchstart' in window ||
-          navigator.maxTouchPoints > 0 ||
-          (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches));
+        this.mobileMode ||
+        (typeof window !== 'undefined' &&
+          ('ontouchstart' in window ||
+            navigator.maxTouchPoints > 0 ||
+            (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches)));
       this.buildDOM();
     }
     this.applyTouchState();
     this.setupMinimapProjection(race);
-    this.cameraLabelEl.textContent = CAMERA_LABELS[cameraMode];
+    this.setCameraLabel(cameraMode);
     this.muteBtnEl.textContent = isMuted ? '🔇' : '🔊';
     this.setPaused(false);
   }
@@ -90,11 +105,11 @@ export class RaceHUD {
     if (!this.builtDom) return;
     this.touchLayerEl.classList.toggle('hidden', !this.touchControlsEnabled);
     this.touchToggleBtnEl.classList.toggle('active', this.touchControlsEnabled);
-    this.touchAutoGasBtnEl.textContent = this.autoGasEnabled ? 'AUTO GAS: ON' : 'AUTO GAS: OFF';
-    this.touchAutoGasBtnEl.classList.toggle('active', this.autoGasEnabled);
-    this.touchGasBtnEl.classList.toggle('hidden', this.autoGasEnabled);
-    this.callbacks.onSetAutoGas(this.touchControlsEnabled && this.autoGasEnabled);
+    this.pauseBtnEl.textContent = this.mobileMode ? '⏸' : '⏸ Esc';
+    this.callbacks.onSetAutoGas(this.touchControlsEnabled);
     if (!this.touchControlsEnabled) {
+      this.steerWheelEl.classList.remove('active');
+      this.steerKnobEl.style.transform = 'translateX(0px) rotate(0deg)';
       this.callbacks.onTouchSteer(0);
       this.callbacks.onTouchBrake(false);
       this.callbacks.onTouchThrottle(false);
@@ -113,7 +128,7 @@ export class RaceHUD {
 
   setCameraLabel(mode: CameraMode): void {
     if (this.cameraLabelEl) {
-      this.cameraLabelEl.textContent = CAMERA_LABELS[mode];
+      this.cameraLabelEl.textContent = this.mobileMode ? '📷' : `📷 ${CAMERA_LABELS[mode]}`;
     }
   }
 
@@ -155,6 +170,22 @@ export class RaceHUD {
             .join('')}
         </div>
 
+        <!-- Asphalt-Inspired Minimalist Top-Center Mobile HUD -->
+        <div class="asphalt-top-hud">
+          <div class="asphalt-hud-row">
+            <span class="asphalt-pos" data-hud="m-pos">P1/12</span>
+            <div class="asphalt-speed-wrap">
+              <span class="asphalt-speed" data-hud="m-speed">0</span>
+              <span class="asphalt-unit">KM/H</span>
+              <span class="asphalt-gear" data-hud="m-gear">G1</span>
+            </div>
+            <span class="asphalt-lap" data-hud="m-lap">LAP 1/5</span>
+          </div>
+          <div class="asphalt-ers-track">
+            <div class="asphalt-ers-fill" data-hud="m-ers-fill"></div>
+          </div>
+        </div>
+
         <div class="hud-corner-controls">
           <button class="hud-pill-btn" data-hud-btn="touch" title="Toggle Asphalt Touch Controls">📱 TOUCH</button>
           <button class="hud-pill-btn" data-hud-btn="cam">📷 TV POD</button>
@@ -162,15 +193,27 @@ export class RaceHUD {
           <button class="hud-pill-btn" data-hud-btn="pause">⏸ Esc</button>
         </div>
 
-        <!-- Asphalt-Style Mobile On-Screen Touch Controls -->
+        <!-- Asphalt-Style Mobile On-Screen Touch Controls (Analog Wheel + Boost / Brake) -->
         <div class="touch-controls-layer hidden" data-hud="touch-layer">
-          <div class="touch-left-zone" data-touch="steer-pad">
-            <button class="touch-steer-btn" data-touch="steer-left" aria-label="Steer Left">◀</button>
-            <button class="touch-steer-btn" data-touch="steer-right" aria-label="Steer Right">▶</button>
+          <div class="touch-left-zone">
+            <div class="analog-steer-zone" data-touch="steer-wheel" aria-label="Analog Steering Wheel">
+              <div class="analog-steer-track">
+                <span class="analog-chevron left">◀</span>
+                <span class="analog-center-tick"></span>
+                <span class="analog-chevron right">▶</span>
+              </div>
+              <div class="analog-steer-knob" data-touch="steer-knob">
+                <svg viewBox="0 0 64 64" width="44" height="44" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round">
+                  <circle cx="32" cy="32" r="22" opacity="0.92" />
+                  <line x1="12" y1="32" x2="52" y2="32" />
+                  <line x1="32" y1="32" x2="32" y2="52" />
+                  <circle cx="32" cy="32" r="5" fill="#e10600" stroke="none" />
+                </svg>
+              </div>
+            </div>
           </div>
           <div class="touch-right-zone">
             <div class="touch-quick-row">
-              <button class="touch-mini-pill active" data-touch="auto-gas">AUTO GAS: ON</button>
               <button class="touch-mini-pill" data-touch="pit">BOX</button>
               <button class="touch-mini-pill" data-touch="reset">↺</button>
             </div>
@@ -178,9 +221,6 @@ export class RaceHUD {
               <button class="touch-brake-btn" data-touch="brake">
                 <span>BRAKE</span>
                 <small>HOLD: R</small>
-              </button>
-              <button class="touch-gas-btn hidden" data-touch="gas">
-                <span>GAS</span>
               </button>
               <button class="touch-boost-btn" data-touch="boost">
                 <span>⚡ BOOST</span>
@@ -271,13 +311,19 @@ export class RaceHUD {
     this.tireTextEl = q('[data-hud="tire-text"]');
     this.pitBadgeEl = q('[data-hud="pit-badge"]');
     this.cameraLabelEl = q('[data-hud-btn="cam"]');
+    this.pauseBtnEl = q('[data-hud-btn="pause"]');
     this.muteBtnEl = q('[data-hud-btn="mute"]');
     this.touchToggleBtnEl = q('[data-hud-btn="touch"]');
     this.touchLayerEl = q('[data-hud="touch-layer"]');
     this.touchBoostBtnEl = q('[data-touch="boost"]');
     this.touchBoostPctEl = q('[data-touch="boost-pct"]');
-    this.touchAutoGasBtnEl = q('[data-touch="auto-gas"]');
-    this.touchGasBtnEl = q('[data-touch="gas"]');
+    this.steerWheelEl = q('[data-touch="steer-wheel"]');
+    this.steerKnobEl = q('[data-touch="steer-knob"]');
+    this.mPosEl = q('[data-hud="m-pos"]');
+    this.mSpeedEl = q('[data-hud="m-speed"]');
+    this.mGearEl = q('[data-hud="m-gear"]');
+    this.mLapEl = q('[data-hud="m-lap"]');
+    this.mErsFillEl = q('[data-hud="m-ers-fill"]');
     this.pauseModalEl = q('[data-hud="pause-modal"]');
     this.minimapCanvas = q<HTMLCanvasElement>('[data-hud="minimap"]');
     this.minimapCtx = this.minimapCanvas.getContext('2d')!;
@@ -296,43 +342,47 @@ export class RaceHUD {
     q('[data-hud-btn="restart"]').addEventListener('click', () => this.callbacks.onRestartRace());
     q('[data-hud-btn="quit"]').addEventListener('click', () => this.callbacks.onQuitToMenu());
 
-    // Bind Asphalt-style multi-touch pointer handlers (slide-friendly Left/Right steer pad!)
-    const steerPad = q('[data-touch="steer-pad"]');
-    const steerLeftBtn = q('[data-touch="steer-left"]');
-    const steerRightBtn = q('[data-touch="steer-right"]');
+    // Bind Virtual Analog Steering Wheel / Horizontal Slider (-1.0 to +1.0 with 0.06 center deadzone)
+    const steerWheel = this.steerWheelEl;
+    const steerKnob = this.steerKnobEl;
     let activeSteerPointer: number | null = null;
 
     const updateSteerFromPointer = (clientX: number) => {
-      const rect = steerPad.getBoundingClientRect();
-      const midX = rect.left + rect.width * 0.5;
-      const dir = clientX < midX ? -1 : 1;
-      steerLeftBtn.classList.toggle('pressed', dir < 0);
-      steerRightBtn.classList.toggle('pressed', dir > 0);
-      this.callbacks.onTouchSteer(dir);
+      const rect = steerWheel.getBoundingClientRect();
+      const centerX = rect.left + rect.width * 0.5;
+      const raw = (clientX - centerX) / Math.max(1, rect.width * 0.42);
+      const clamped = Math.max(-1, Math.min(1, raw));
+      const steer =
+        Math.abs(clamped) < 0.06
+          ? 0
+          : (Math.sign(clamped) * (Math.abs(clamped) - 0.06)) / 0.94;
+      steerWheel.classList.add('active');
+      steerKnob.style.transform = `translateX(${steer * 34}px) rotate(${steer * 52}deg)`;
+      this.callbacks.onTouchSteer(steer);
     };
 
     const clearSteer = () => {
       activeSteerPointer = null;
-      steerLeftBtn.classList.remove('pressed');
-      steerRightBtn.classList.remove('pressed');
+      steerWheel.classList.remove('active');
+      steerKnob.style.transform = 'translateX(0px) rotate(0deg)';
       this.callbacks.onTouchSteer(0);
     };
 
-    steerPad.addEventListener('pointerdown', (e) => {
+    steerWheel.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       activeSteerPointer = e.pointerId;
-      steerPad.setPointerCapture?.(e.pointerId);
+      steerWheel.setPointerCapture?.(e.pointerId);
       updateSteerFromPointer(e.clientX);
     });
-    steerPad.addEventListener('pointermove', (e) => {
+    steerWheel.addEventListener('pointermove', (e) => {
       if (e.pointerId !== activeSteerPointer) return;
       e.preventDefault();
       updateSteerFromPointer(e.clientX);
     });
-    steerPad.addEventListener('pointerup', (e) => {
+    steerWheel.addEventListener('pointerup', (e) => {
       if (e.pointerId === activeSteerPointer) clearSteer();
     });
-    steerPad.addEventListener('pointercancel', (e) => {
+    steerWheel.addEventListener('pointercancel', (e) => {
       if (e.pointerId === activeSteerPointer) clearSteer();
     });
 
@@ -356,13 +406,8 @@ export class RaceHUD {
     };
 
     bindHoldButton(q('[data-touch="brake"]'), (down) => this.callbacks.onTouchBrake(down));
-    bindHoldButton(this.touchGasBtnEl, (down) => this.callbacks.onTouchThrottle(down));
     bindHoldButton(this.touchBoostBtnEl, (down) => this.callbacks.onTouchBoost(down));
 
-    this.touchAutoGasBtnEl.addEventListener('click', () => {
-      this.autoGasEnabled = !this.autoGasEnabled;
-      this.applyTouchState();
-    });
     q('[data-touch="pit"]').addEventListener('click', () => this.callbacks.onTouchPit());
     q('[data-touch="reset"]').addEventListener('click', () => this.callbacks.onTouchReset());
 
@@ -461,9 +506,29 @@ export class RaceHUD {
       this.rpmLeds[i].style.background = col;
     }
 
+    // Minimalist Asphalt Top-Center Floating HUD sync
+    const playerRow = rows.find((r) => r.isPlayer);
+    const posNum = playerRow?.position ?? 1;
+    const gearText = pCar.gear < 0 ? 'R' : `G${pCar.gear}`;
+    const lapText =
+      race.phase === 'qualifying'
+        ? 'QUALI'
+        : race.settings.mode === 'time-trial'
+          ? `LAP ${Math.max(1, pCar.lap)}`
+          : `LAP ${Math.max(1, Math.min(race.settings.laps, pCar.lap))}/${race.settings.laps}`;
+    const ersWidthPct = Math.min(100, Math.round((pCar.ersBattery / 1.125) * 100));
+
+    this.mPosEl.textContent =
+      race.settings.mode === 'time-trial' ? 'TIME TRIAL' : `P${posNum}/${race.cars.length}`;
+    this.mSpeedEl.textContent = String(kmh);
+    this.mGearEl.textContent = gearText;
+    this.mLapEl.textContent = lapText;
+    this.mErsFillEl.style.width = `${ersWidthPct}%`;
+    this.mErsFillEl.classList.toggle('boosting', pCar.boostActive);
+
     this.throttleBarEl.style.width = `${Math.round(pCar.throttleApplied * 100)}%`;
     this.brakeBarEl.style.width = `${Math.round(pCar.brakeApplied * 100)}%`;
-    this.ersBarEl.style.width = `${Math.round((pCar.ersBattery / 1.125) * 100)}%`;
+    this.ersBarEl.style.width = `${ersWidthPct}%`;
     this.ersBarEl.style.background = pCar.boostActive ? '#fde047' : '#00e5ff';
     if (this.touchBoostPctEl) {
       const pct = Math.min(100, Math.round(pCar.ersBattery * 100));

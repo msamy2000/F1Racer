@@ -253,4 +253,24 @@ describe('InputManager — Keyboard Controls, Smoothing & Edge Triggers', () => 
     expect(cleared.boost).toBe(false);
     expect(cleared.steer).toBe(0);
   });
+
+  it('preserves continuous proportional analog steering values from virtual steering wheel', () => {
+    input.setTouchSteer(-0.45);
+    const gentleLeft = input.sample(0.6, 25);
+    expect(gentleLeft.steer).toBeLessThan(-0.3);
+    expect(gentleLeft.steer).toBeGreaterThan(-0.6);
+
+    input.resetContinuous();
+    input.setTouchSteer(0.72);
+    const mediumRight = input.sample(0.6, 25);
+    expect(mediumRight.steer).toBeGreaterThan(0.5);
+    expect(mediumRight.steer).toBeLessThan(0.85);
+
+    // Clamps extreme analog inputs cleanly to [-1, +1]
+    input.resetContinuous();
+    input.setTouchSteer(-2.5);
+    const maxLeft = input.sample(0.6, 10);
+    expect(maxLeft.steer).toBeGreaterThanOrEqual(-1.0);
+    expect(maxLeft.steer).toBeLessThan(-0.9);
+  });
 });

@@ -158,24 +158,26 @@ export class MenuUI {
     const muted = this.callbacks.isMuted();
 
     const topBar = `
-      <div class="broadcast-topbar">
-        <div class="brand-lockup">
-          <span class="f1-pill">F1 26</span>
-          <div>
-            <div class="brand-title">2026 World Tour</div>
-            <div class="brand-sub">Active Aero • 350 kW Boost • Overtake Era</div>
+      <div class="menu-topbar-wrap">
+        <div class="broadcast-topbar">
+          <div class="brand-lockup">
+            <span class="f1-pill">F1 26</span>
+            <div>
+              <div class="brand-title">2026 World Tour</div>
+              <div class="brand-sub">Active Aero • 350 kW Boost • Overtake Era</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <span class="brand-sub topbar-driver-chip" style="color:#fff;font-weight:700;">
+              ${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}
+            </span>
+            <button class="btn-secondary" data-action="toggle-mute">${muted ? '🔇 Muted' : '🔊 Audio On'}</button>
           </div>
         </div>
-        <div style="display:flex;gap:10px;align-items:center;">
-          <span class="brand-sub" style="color:#fff;font-weight:700;">
-            ${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}
-          </span>
-          <button class="btn-secondary" data-action="toggle-mute">${muted ? '🔇 Muted' : '🔊 Audio On'}</button>
+        <div class="ticker-bar">
+          <span class="ticker-dot"></span>
+          <span data-ticker-text>${SEASON_2026_TICKER[this.tickerIdx]}</span>
         </div>
-      </div>
-      <div class="ticker-bar">
-        <span class="ticker-dot"></span>
-        <span data-ticker-text>${SEASON_2026_TICKER[this.tickerIdx]}</span>
       </div>
     `;
 
@@ -190,7 +192,8 @@ export class MenuUI {
       body = this.renderResults();
     }
 
-    this.root.innerHTML = `<div class="menu-shell interactive">${topBar}${body}</div>`;
+    const isResults = this.screen === 'results';
+    this.root.innerHTML = `<div class="menu-shell interactive ${isResults ? 'is-results' : ''}">${topBar}<div class="menu-content-dock">${body}</div></div>`;
     this.bindEvents();
   }
 
@@ -329,7 +332,7 @@ export class MenuUI {
     };
 
     const flexHeroCards = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;">
+      <div class="flex-hero-grid">
         ${renderFlexHeroCard(YAHIA_DRIVER, '★ Featured Rookie Star • Flex Seat')}
         ${renderFlexHeroCard(MARIAM_DRIVER, '★ Featured Rising Star • Flex Seat')}
       </div>
@@ -381,9 +384,11 @@ export class MenuUI {
         </div>
       </div>
 
-      ${flexHeroCards}
+      <div class="drivers-carousel-wrap">
+        ${flexHeroCards}
 
-      <div class="drivers-grid">${realCards}</div>
+        <div class="drivers-grid">${realCards}</div>
+      </div>
     `;
   }
 

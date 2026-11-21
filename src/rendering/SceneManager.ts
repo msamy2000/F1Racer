@@ -798,7 +798,10 @@ export class SceneManager {
         this.cameraRig.updatePodiumStage(clockSec);
       } else if (this.showroomCar) {
         this.showroomCar.root.rotation.y = clockSec * 0.28;
-        this.cameraRig.updateMenuShowroom(clockSec);
+        const isMobileUI =
+          typeof document !== 'undefined' &&
+          (document.body?.classList.contains('is-mobile-ui') ?? false);
+        this.cameraRig.updateMenuShowroom(clockSec, isMobileUI);
       }
     }
     this.composer.render();

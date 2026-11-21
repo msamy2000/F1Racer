@@ -19,6 +19,7 @@ import { EffectsManager } from './rendering/EffectsManager';
 import { SceneManager } from './rendering/SceneManager';
 import { preloadTrackTextures } from './rendering/TextureLibrary';
 import { buildTrackWorld, type BuiltTrackWorld } from './rendering/TrackMeshBuilder';
+import { DeviceProfileManager } from './ui/DeviceProfile';
 import { MenuUI } from './ui/MenuUI';
 import { RaceHUD } from './ui/RaceHUD';
 import './ui/styles.css';
@@ -205,6 +206,12 @@ const hud = new RaceHUD(hudLayer, {
   onSetAutoGas(enabled) {
     input.autoAccelerate = enabled;
   },
+});
+
+const deviceProfile = new DeviceProfileManager(uiRoot);
+hud.setMobileMode(deviceProfile.isMobile);
+deviceProfile.subscribe(({ isMobile }) => {
+  hud.setMobileMode(isMobile);
 });
 
 // Boot directly into the 3D Showroom + Broadcast Home Screen, then hot-swap to real GLB car once loaded
