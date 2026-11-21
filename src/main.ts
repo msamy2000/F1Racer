@@ -184,6 +184,27 @@ const hud = new RaceHUD(hudLayer, {
       startSession(lastRaceSettings, activeChamp);
     }
   },
+  onTouchSteer(steer) {
+    input.setTouchSteer(steer);
+  },
+  onTouchThrottle(active) {
+    input.setTouchThrottle(active);
+  },
+  onTouchBrake(active) {
+    input.setTouchBrake(active);
+  },
+  onTouchBoost(active) {
+    input.setTouchBoost(active);
+  },
+  onTouchPit() {
+    input.triggerTouchEdge('pit');
+  },
+  onTouchReset() {
+    input.triggerTouchEdge('reset');
+  },
+  onSetAutoGas(enabled) {
+    input.autoAccelerate = enabled;
+  },
 });
 
 // Boot directly into the 3D Showroom + Broadcast Home Screen, then hot-swap to real GLB car once loaded

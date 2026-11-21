@@ -26,6 +26,13 @@ export class InputManager {
   private throttleSmoothed = 0;
   private brakeSmoothed = 0;
 
+  // Mobile / Asphalt-style touch input state
+  autoAccelerate = false;
+  private touchSteer = 0;
+  private touchThrottle = false;
+  private touchBrake = false;
+  private touchBoost = false;
+
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     const code = e.code;
     if (
@@ -58,7 +65,35 @@ export class InputManager {
 
   private readonly onBlur = (): void => {
     this.keys.clear();
+    this.clearTouch();
   };
+
+  setTouchSteer(steer: number): void {
+    this.touchSteer = Math.max(-1, Math.min(1, steer));
+  }
+
+  setTouchThrottle(active: boolean): void {
+    this.touchThrottle = active;
+  }
+
+  setTouchBrake(active: boolean): void {
+    this.touchBrake = active;
+  }
+
+  setTouchBoost(active: boolean): void {
+    this.touchBoost = active;
+  }
+
+  triggerTouchEdge(action: 'shiftUp' | 'shiftDown' | 'camera' | 'pit' | 'reset' | 'pause'): void {
+    this.queuedEdge[action] = true;
+  }
+
+  clearTouch(): void {
+    this.touchSteer = 0;
+    this.touchThrottle = false;
+    this.touchBrake = false;
+    this.touchBoost = false;
+  }
 
   attach(): void {
     window.addEventListener('keydown', this.onKeyDown, { passive: false });
@@ -76,19 +111,23 @@ export class InputManager {
     this.steerSmoothed = 0;
     this.throttleSmoothed = 0;
     this.brakeSmoothed = 0;
+    this.clearTouch();
   }
 
   /**
-   * Samples smoothed keyboard controls tuned for crisp, progressive F1 driving.
+   * Samples smoothed keyboard & Asphalt-style touch controls tuned for crisp, progressive F1 driving.
    */
   sample(dt: number, speedMps: number): ControlInput {
+    const keyThrottle = this.keys.has('KeyW') || this.keys.has('ArrowUp') ? 1 : 0;
+    const keyBrake = this.keys.has('KeyS') || this.keys.has('ArrowDown') ? 1 : 0;
+    const rawBrake = keyBrake || this.touchBrake ? 1 : 0;
     const rawThrottle =
-      this.keys.has('KeyW') || this.keys.has('ArrowUp') ? 1 : 0;
-    const rawBrake =
-      this.keys.has('KeyS') || this.keys.has('ArrowDown') ? 1 : 0;
+      keyThrottle || this.touchThrottle || (this.autoAccelerate && rawBrake === 0) ? 1 : 0;
+
     const left = this.keys.has('KeyA') || this.keys.has('ArrowLeft') ? 1 : 0;
     const right = this.keys.has('KeyD') || this.keys.has('ArrowRight') ? 1 : 0;
-    const rawSteer = right - left;
+    const keySteer = right - left;
+    const rawSteer = Math.max(-1, Math.min(1, keySteer !== 0 ? keySteer : this.touchSteer));
 
     // Speed-sensitive steering ramp: brisk in tight hairpins, smooth at 330+ km/h
     const speedRatio = Math.min(1, speedMps / 92);
@@ -120,7 +159,7 @@ export class InputManager {
       throttle: this.throttleSmoothed,
       brake: this.brakeSmoothed,
       steer: this.steerSmoothed,
-      boost: this.keys.has('Space'),
+      boost: this.keys.has('Space') || this.touchBoost,
       shiftUpPressed: this.queuedEdge.shiftUp,
       shiftDownPressed: this.queuedEdge.shiftDown,
       cameraPressed: this.queuedEdge.camera,

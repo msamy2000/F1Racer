@@ -222,4 +222,35 @@ describe('InputManager — Keyboard Controls, Smoothing & Edge Triggers', () => 
     expect(mockWin.listeners.keyup?.size ?? 0).toBe(0);
     expect(mockWin.listeners.blur?.size ?? 0).toBe(0);
   });
+
+  it('supports Asphalt-style touch auto-accelerate, steering, boost, braking & edge actions', () => {
+    input.autoAccelerate = true;
+    const autoGas = input.sample(0.4, 30);
+    expect(autoGas.throttle).toBeCloseTo(1, 5);
+    expect(autoGas.brake).toBe(0);
+
+    // Pressing touch brake overrides auto-accelerate cleanly
+    input.setTouchBrake(true);
+    const braking = input.sample(0.4, 30);
+    expect(braking.brake).toBeCloseTo(1, 5);
+    expect(braking.throttle).toBe(0);
+
+    // Touch steer + boost + pit/reset edge triggers work simultaneously
+    input.setTouchBrake(false);
+    input.setTouchSteer(-1);
+    input.setTouchBoost(true);
+    input.triggerTouchEdge('pit');
+    input.triggerTouchEdge('reset');
+    const action = input.sample(0.3, 20);
+    expect(action.steer).toBeLessThan(-0.7);
+    expect(action.boost).toBe(true);
+    expect(action.pitPressed).toBe(true);
+    expect(action.resetPressed).toBe(true);
+
+    // clearTouch() resets all touch holds
+    input.clearTouch();
+    const cleared = input.sample(0.4, 20);
+    expect(cleared.boost).toBe(false);
+    expect(cleared.steer).toBe(0);
+  });
 });
