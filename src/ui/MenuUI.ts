@@ -88,16 +88,22 @@ export class MenuUI {
   };
 
   private tickerIdx = 0;
-  private tickerInterval: number | null = null;
+  private tickerInterval: ReturnType<typeof setInterval> | null = null;
   private lastResults: RaceResultEntry[] = [];
   private lastChamp: ChampionshipState | null = null;
   private activeChamp: ChampionshipState | null = loadChampionshipState();
   private podiumCinemaMode = false;
+  private flexTeamByDriver: Record<string, TeamId> = {
+    yahia: YAHIA_DRIVER.teamId,
+    mariam: MARIAM_DRIVER.teamId,
+  };
+  private preloadedPortraits: HTMLImageElement[] = [];
 
   constructor(root: HTMLElement, callbacks: MenuCallbacks) {
     this.root = root;
     this.callbacks = callbacks;
-    this.tickerInterval = window.setInterval(() => {
+    this.preloadFlexPortraits();
+    this.tickerInterval = globalThis.setInterval(() => {
       this.tickerIdx = (this.tickerIdx + 1) % SEASON_2026_TICKER.length;
       const tickerEl = this.root.querySelector<HTMLElement>('[data-ticker-text]');
       if (tickerEl) {
@@ -106,9 +112,22 @@ export class MenuUI {
     }, 4500);
   }
 
+  private preloadFlexPortraits(): void {
+    if (typeof Image === 'undefined') return;
+    for (const drv of [YAHIA_DRIVER, MARIAM_DRIVER]) {
+      const teams = drv.flexTeams ?? (['mercedes', 'redbull', 'mclaren'] as TeamId[]);
+      for (const tid of teams) {
+        const img = new Image();
+        img.decoding = 'sync';
+        img.src = getDriverPortraitPath(drv, tid, 'grid');
+        this.preloadedPortraits.push(img);
+      }
+    }
+  }
+
   destroy(): void {
     if (this.tickerInterval !== null) {
-      window.clearInterval(this.tickerInterval);
+      globalThis.clearInterval(this.tickerInterval);
     }
   }
 
@@ -129,9 +148,17 @@ export class MenuUI {
     this.show();
   }
 
-  private selectDriver(driverId: string, yahiaTeam?: TeamId): void {
+  private selectDriver(driverId: string, flexTeam?: TeamId): void {
     this.playerDriverId = driverId;
-    if (yahiaTeam) this.yahiaTeamId = yahiaTeam;
+    const drv = ALL_DRIVERS.find((d) => d.id === driverId);
+    if (drv?.isFlexStar) {
+      if (flexTeam) {
+        this.flexTeamByDriver[driverId] = flexTeam;
+      }
+      this.yahiaTeamId = this.flexTeamByDriver[driverId] ?? drv.teamId;
+    } else if (flexTeam) {
+      this.yahiaTeamId = flexTeam;
+    }
     this.callbacks.onShowroomChanged(this.playerDriverId, this.yahiaTeamId);
     this.render();
   }
@@ -207,8 +234,19 @@ export class MenuUI {
       body = this.renderResults();
     }
 
+    const prevCarousel = this.root.querySelector<HTMLElement>('.drivers-carousel-wrap');
+    const prevScrollLeft = prevCarousel ? prevCarousel.scrollLeft : 0;
+
     const isResults = this.screen === 'results';
     this.root.innerHTML = `<div class="menu-shell interactive ${isResults ? 'is-results' : ''}">${topBar}<div class="menu-content-dock">${body}</div></div>`;
+
+    if (prevScrollLeft > 0) {
+      const nextCarousel = this.root.querySelector<HTMLElement>('.drivers-carousel-wrap');
+      if (nextCarousel) {
+        nextCarousel.scrollLeft = prevScrollLeft;
+      }
+    }
+
     this.bindEvents();
   }
 
@@ -306,7 +344,7 @@ export class MenuUI {
   private renderDriverSelect(): string {
     const renderFlexHeroCard = (driver: typeof YAHIA_DRIVER, badgeLabel: string) => {
       const selected = this.playerDriverId === driver.id;
-      const activeTeamId = selected ? this.yahiaTeamId : driver.teamId;
+      const activeTeamId = this.flexTeamByDriver[driver.id] ?? driver.teamId;
       const team = TEAMS[activeTeamId];
       const pills = (['mercedes', 'redbull', 'mclaren'] as TeamId[])
         .map((tid) => {
@@ -330,7 +368,11 @@ export class MenuUI {
              data-driver="${driver.id}"
              style="--team-accent:${team.uiColor};">
           <div class="driver-portrait-frame">
-            <img src="${getDriverPortraitPath(driver, activeTeamId, 'grid')}" alt="${driver.name}" />
+            <img src="${getDriverPortraitPath(driver, activeTeamId, 'grid')}"
+                 data-fallback-src="./assets/drivers/${driver.portraitBase}-${driver.teamId}.png"
+                 loading="eager"
+                 decoding="sync"
+                 alt="${driver.name}" />
           </div>
           <div style="display:flex;flex-direction:column;justify-content:space-between;">
             <div>
@@ -342,10 +384,10 @@ export class MenuUI {
                   ${selected ? '● SELECTED' : 'CLICK TO DRIVE'}
                 </span>
               </div>
-              <div style="font-size:24px;font-weight:900;margin-top:2px;">
+              <div class="hero-driver-name" style="font-size:24px;font-weight:900;margin-top:2px;">
                 ${driver.flag} #${driver.number} ${driver.name} <span style="font-size:14px;color:var(--text-muted);">(${driver.code})</span>
               </div>
-              <div style="font-size:12px;color:var(--text-muted);">
+              <div class="hero-driver-desc" style="font-size:12px;color:var(--text-muted);">
                 Sign with Mercedes, Red Bull, or McLaren — suit, 3D helmet &amp; car livery update live!
               </div>
             </div>
@@ -694,6 +736,15 @@ export class MenuUI {
   }
 
   private bindEvents(): void {
+    this.root.querySelectorAll<HTMLImageElement>('img[data-fallback-src]').forEach((img) => {
+      img.addEventListener('error', () => {
+        const fb = img.dataset.fallbackSrc;
+        if (fb && img.getAttribute('src') !== fb) {
+          img.src = fb;
+        }
+      });
+    });
+
     this.root.querySelectorAll<HTMLElement>('[data-action]').forEach((el) => {
       el.addEventListener('click', (e) => {
         const action = el.dataset.action;
@@ -720,6 +771,9 @@ export class MenuUI {
           this.mode = 'championship';
           this.playerDriverId = this.activeChamp.playerDriverId;
           this.yahiaTeamId = this.activeChamp.yahiaTeamId;
+          if (this.activeChamp.playerDriverId in this.flexTeamByDriver) {
+            this.flexTeamByDriver[this.activeChamp.playerDriverId] = this.yahiaTeamId;
+          }
           this.difficulty = this.activeChamp.difficulty;
           this.circuitId = CIRCUIT_ORDER[this.activeChamp.currentRoundIndex];
           this.launchCurrentSettings(this.activeChamp);

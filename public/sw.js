@@ -1,4 +1,4 @@
-const CACHE_NAME = 'f1-2026-world-tour-v3';
+const CACHE_NAME = 'f1-2026-world-tour-v4';
 
 const SHELL_ASSETS = [
   './',
@@ -6,6 +6,12 @@ const SHELL_ASSETS = [
   './manifest.webmanifest',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
+  './assets/drivers/yahia-mercedes.png',
+  './assets/drivers/yahia-redbull.png',
+  './assets/drivers/yahia-mclaren.png',
+  './assets/drivers/mariam-mercedes.png',
+  './assets/drivers/mariam-redbull.png',
+  './assets/drivers/mariam-mclaren.png',
 ];
 
 const IMMUTABLE_ASSET_RE =
@@ -54,15 +60,22 @@ self.addEventListener('fetch', (event) => {
   if (IMMUTABLE_ASSET_RE.test(url.pathname)) {
     // Cache-first for large immutable binary assets (models, HDRIs, textures, audio, portraits)
     event.respondWith(
-      caches.match(request).then(async (cached) => {
+      caches.match(request).then((cached) => {
         if (cached) return cached;
-        const response = await fetch(request);
-        if (response && response.ok && response.status === 200) {
-          const copy = response.clone();
-          const cache = await caches.open(CACHE_NAME);
-          await cache.put(request, copy);
-        }
-        return response;
+        return fetch(request)
+          .then((response) => {
+            if (response && response.ok && response.status === 200) {
+              const copy = response.clone();
+              event.waitUntil(
+                caches
+                  .open(CACHE_NAME)
+                  .then((cache) => cache.put(request, copy))
+                  .catch(() => {}),
+              );
+            }
+            return response;
+          })
+          .catch(() => new Response('', { status: 504, statusText: 'Gateway Timeout' }));
       }),
     );
     return;
