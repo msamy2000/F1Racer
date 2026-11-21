@@ -3,6 +3,7 @@ import { TIRE_SPECS } from '../engine/CarPhysics';
 import { formatLapTime, RaceManager } from '../engine/RaceManager';
 import { CAMERA_LABELS, type CameraMode } from '../rendering/CameraRig';
 import { SAMPLE_COUNT } from '../engine/TrackSpline';
+import type { PwaState } from './PwaManager';
 
 export interface RaceHUDCallbacks {
   onTogglePause(): void;
@@ -17,6 +18,8 @@ export interface RaceHUDCallbacks {
   onTouchPit(): void;
   onTouchReset(): void;
   onSetAutoGas(enabled: boolean): void;
+  onToggleFullscreen?(): void;
+  getPwaState?(): PwaState;
 }
 
 export class RaceHUD {
@@ -46,6 +49,9 @@ export class RaceHUD {
   private pauseBtnEl!: HTMLElement;
   private muteBtnEl!: HTMLElement;
   private touchToggleBtnEl!: HTMLElement;
+  private fullscreenBtnEl!: HTMLElement;
+  private pauseFullscreenBtnEl!: HTMLElement;
+  private lastPwaState: PwaState | null = null;
   private touchLayerEl!: HTMLElement;
   private touchBoostBtnEl!: HTMLElement;
   private touchBoostPctEl!: HTMLElement;
@@ -80,6 +86,8 @@ export class RaceHUD {
     this.touchControlsEnabled = isMobile;
     if (this.builtDom) {
       this.applyTouchState();
+      const state = this.lastPwaState ?? this.callbacks.getPwaState?.();
+      if (state) this.syncPwaState(state);
     }
   }
 
@@ -95,10 +103,23 @@ export class RaceHUD {
       this.buildDOM();
     }
     this.applyTouchState();
+    const state = this.lastPwaState ?? this.callbacks.getPwaState?.();
+    if (state) this.syncPwaState(state);
     this.setupMinimapProjection(race);
     this.setCameraLabel(cameraMode);
     this.muteBtnEl.textContent = isMuted ? '🔇' : '🔊';
     this.setPaused(false);
+  }
+
+  syncPwaState(state: PwaState): void {
+    this.lastPwaState = state;
+    if (!this.builtDom) return;
+    const showCornerFs = this.mobileMode && state.canToggleFullscreen && !state.isFullscreen;
+    this.fullscreenBtnEl.classList.toggle('hidden', !showCornerFs);
+    this.pauseFullscreenBtnEl.classList.toggle('hidden', !state.canToggleFullscreen);
+    this.pauseFullscreenBtnEl.textContent = state.isFullscreen
+      ? '✕ Exit Fullscreen'
+      : '⛶ Enter Fullscreen';
   }
 
   private applyTouchState(): void {
@@ -187,6 +208,7 @@ export class RaceHUD {
         </div>
 
         <div class="hud-corner-controls">
+          <button class="hud-pill-btn hidden" data-hud-btn="fullscreen" title="Enter Fullscreen">⛶</button>
           <button class="hud-pill-btn" data-hud-btn="touch" title="Toggle Asphalt Touch Controls">📱 TOUCH</button>
           <button class="hud-pill-btn" data-hud-btn="cam">📷 TV POD</button>
           <button class="hud-pill-btn" data-hud-btn="mute">🔊</button>
@@ -283,6 +305,7 @@ export class RaceHUD {
               W/S Gas & Brake • A/D Steer • Space Boost • C Camera • P Pit Box • R Track Reset
             </p>
             <button class="btn-primary" data-hud-btn="resume">Resume Driving</button>
+            <button class="btn-secondary hidden" data-hud-btn="pause-fullscreen">⛶ Fullscreen Mode</button>
             <button class="btn-secondary" data-hud-btn="restart">Restart Session</button>
             <button class="btn-secondary" data-hud-btn="quit">Quit to Main Menu</button>
           </div>
@@ -314,6 +337,8 @@ export class RaceHUD {
     this.pauseBtnEl = q('[data-hud-btn="pause"]');
     this.muteBtnEl = q('[data-hud-btn="mute"]');
     this.touchToggleBtnEl = q('[data-hud-btn="touch"]');
+    this.fullscreenBtnEl = q('[data-hud-btn="fullscreen"]');
+    this.pauseFullscreenBtnEl = q('[data-hud-btn="pause-fullscreen"]');
     this.touchLayerEl = q('[data-hud="touch-layer"]');
     this.touchBoostBtnEl = q('[data-touch="boost"]');
     this.touchBoostPctEl = q('[data-touch="boost-pct"]');
@@ -332,6 +357,8 @@ export class RaceHUD {
       this.touchControlsEnabled = !this.touchControlsEnabled;
       this.applyTouchState();
     });
+    this.fullscreenBtnEl.addEventListener('click', () => this.callbacks.onToggleFullscreen?.());
+    this.pauseFullscreenBtnEl.addEventListener('click', () => this.callbacks.onToggleFullscreen?.());
     q('[data-hud-btn="cam"]').addEventListener('click', () => this.callbacks.onCycleCamera());
     q('[data-hud-btn="mute"]').addEventListener('click', () => {
       const m = this.callbacks.onToggleMute();

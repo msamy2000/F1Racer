@@ -24,6 +24,8 @@ import {
   type RaceSettings,
 } from '../engine/RaceManager';
 
+import type { PwaState } from './PwaManager';
+
 export type MenuScreen = 'home' | 'driver' | 'setup' | 'results';
 
 export interface MenuCallbacks {
@@ -31,6 +33,10 @@ export interface MenuCallbacks {
   onStartSession(settings: RaceSettings, championship: ChampionshipState | null): void;
   onToggleMute(): boolean;
   isMuted(): boolean;
+  getPwaState(): PwaState;
+  onToggleFullscreen(): void;
+  onRequestInstall(): void;
+  onEnsureMobileFullscreen(): void;
 }
 
 function buildCircuitSvgPath(points: [number, number, number][]): string {
@@ -129,6 +135,9 @@ export class MenuUI {
   }
 
   private launchCurrentSettings(champOverride?: ChampionshipState | null): void {
+    // Request mobile fullscreen + landscape synchronously inside click gesture before async asset awaits
+    this.callbacks.onEnsureMobileFullscreen();
+
     const champ = champOverride ?? (this.mode === 'championship' ? this.activeChamp : null);
     const circuitId =
       this.mode === 'championship' && champ
@@ -156,6 +165,8 @@ export class MenuUI {
       ALL_DRIVERS.find((d) => d.id === this.playerDriverId) ?? YAHIA_DRIVER;
     const selectedTeam = resolveDriverTeam(selectedDriver, this.yahiaTeamId);
     const muted = this.callbacks.isMuted();
+    const pwa = this.callbacks.getPwaState();
+    const showInstall = !pwa.isStandalone && (pwa.canInstallPrompt || pwa.isIosSafari);
 
     const topBar = `
       <div class="menu-topbar-wrap">
@@ -167,10 +178,12 @@ export class MenuUI {
               <div class="brand-sub">Active Aero • 350 kW Boost • Overtake Era</div>
             </div>
           </div>
-          <div style="display:flex;gap:10px;align-items:center;">
+          <div style="display:flex;gap:8px;align-items:center;">
             <span class="brand-sub topbar-driver-chip" style="color:#fff;font-weight:700;">
               ${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}
             </span>
+            <button class="btn-secondary mobile-pwa-btn ${showInstall ? '' : 'hidden'}" data-action="pwa-install">📲 App</button>
+            <button class="btn-secondary mobile-pwa-btn ${pwa.canToggleFullscreen ? '' : 'hidden'}" data-action="toggle-fullscreen">${pwa.isFullscreen ? '✕ Exit' : '⛶ Full'}</button>
             <button class="btn-secondary" data-action="toggle-mute">${muted ? '🔇 Muted' : '🔊 Audio On'}</button>
           </div>
         </div>
@@ -195,6 +208,20 @@ export class MenuUI {
     const isResults = this.screen === 'results';
     this.root.innerHTML = `<div class="menu-shell interactive ${isResults ? 'is-results' : ''}">${topBar}<div class="menu-content-dock">${body}</div></div>`;
     this.bindEvents();
+  }
+
+  syncPwaState(state: PwaState): void {
+    const installBtn = this.root.querySelector<HTMLElement>('[data-action="pwa-install"]');
+    if (installBtn) {
+      const showInstall = !state.isStandalone && (state.canInstallPrompt || state.isIosSafari);
+      installBtn.classList.toggle('hidden', !showInstall);
+    }
+
+    const fullBtn = this.root.querySelector<HTMLElement>('[data-action="toggle-fullscreen"]');
+    if (fullBtn) {
+      fullBtn.classList.toggle('hidden', !state.canToggleFullscreen);
+      fullBtn.textContent = state.isFullscreen ? '✕ Exit' : '⛶ Full';
+    }
   }
 
   private renderHome(
@@ -663,6 +690,14 @@ export class MenuUI {
         if (action === 'toggle-mute') {
           this.callbacks.onToggleMute();
           this.render();
+          return;
+        }
+        if (action === 'pwa-install') {
+          this.callbacks.onRequestInstall();
+          return;
+        }
+        if (action === 'toggle-fullscreen') {
+          this.callbacks.onToggleFullscreen();
           return;
         }
         if (action === 'go-mode') {

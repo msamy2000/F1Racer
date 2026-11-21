@@ -21,6 +21,7 @@ import { preloadTrackTextures } from './rendering/TextureLibrary';
 import { buildTrackWorld, type BuiltTrackWorld } from './rendering/TrackMeshBuilder';
 import { DeviceProfileManager } from './ui/DeviceProfile';
 import { MenuUI } from './ui/MenuUI';
+import { PwaManager } from './ui/PwaManager';
 import { RaceHUD } from './ui/RaceHUD';
 import './ui/styles.css';
 
@@ -35,6 +36,8 @@ uiRoot.append(menuLayer, hudLayer);
 appEl.append(canvasHost, uiRoot);
 
 const sceneManager = new SceneManager(canvasHost);
+const pwa = new PwaManager(uiRoot);
+void pwa.registerServiceWorker();
 const input = new InputManager();
 input.attach();
 const audio = new F1AudioEngine();
@@ -160,6 +163,20 @@ const menuUI = new MenuUI(menuLayer, {
   isMuted() {
     return audio.muted;
   },
+  getPwaState() {
+    return pwa.getState();
+  },
+  onToggleFullscreen() {
+    void pwa.toggleFullscreen();
+  },
+  onRequestInstall() {
+    void pwa.promptInstall();
+  },
+  onEnsureMobileFullscreen() {
+    if (deviceProfile.isMobile) {
+      void pwa.enterMobileFullscreen();
+    }
+  },
 });
 
 const hud = new RaceHUD(hudLayer, {
@@ -206,12 +223,23 @@ const hud = new RaceHUD(hudLayer, {
   onSetAutoGas(enabled) {
     input.autoAccelerate = enabled;
   },
+  onToggleFullscreen() {
+    void pwa.toggleFullscreen();
+  },
+  getPwaState() {
+    return pwa.getState();
+  },
 });
 
 const deviceProfile = new DeviceProfileManager(uiRoot);
 hud.setMobileMode(deviceProfile.isMobile);
+hud.syncPwaState(pwa.getState());
 deviceProfile.subscribe(({ isMobile }) => {
   hud.setMobileMode(isMobile);
+});
+pwa.subscribe((state) => {
+  hud.syncPwaState(state);
+  menuUI.syncPwaState(state);
 });
 
 // Boot directly into the 3D Showroom + Broadcast Home Screen, then hot-swap to real GLB car once loaded
@@ -227,9 +255,12 @@ void preloadF1CarModel().then(() => {
   }
 });
 
-window.addEventListener('resize', () => {
+const handleViewportResize = () => {
   sceneManager.resize(window.innerWidth, window.innerHeight);
-});
+};
+window.addEventListener('resize', handleViewportResize);
+window.visualViewport?.addEventListener('resize', handleViewportResize);
+document.addEventListener('fullscreenchange', handleViewportResize);
 
 const FIXED_DT = 1 / 60;
 let accumulator = 0;
