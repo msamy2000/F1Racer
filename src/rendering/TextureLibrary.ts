@@ -768,3 +768,141 @@ export function createPaddockTruckTexture(
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+/** 360-degree illuminated Las Vegas night city skyline horizon backdrop texture. */
+export function createVegasSkylineWallTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 1024, 256);
+
+  // Subtle urban horizon glow along the lower third
+  const glow = ctx.createLinearGradient(0, 48, 0, 256);
+  glow.addColorStop(0, 'rgba(8, 12, 28, 0)');
+  glow.addColorStop(0.45, 'rgba(26, 20, 56, 0.55)');
+  glow.addColorStop(1, 'rgba(14, 18, 34, 0.98)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 48, 1024, 208);
+
+  const neonAccents = ['#00E5FF', '#FF2E93', '#FFD700', '#A855F7', '#E10600'];
+  const winColors = ['#FFE8A3', '#7CE8FF', '#FFF6DC', '#F472B6'];
+
+  // Dense multi-layered high-rise silhouette along the entire 1024px strip
+  let x = 0;
+  let bIdx = 0;
+  while (x < 1024) {
+    const w = 22 + ((bIdx * 17) % 28);
+    const h = 84 + ((bIdx * 43 + 19) % 138);
+    const topY = 256 - h;
+
+    ctx.fillStyle = bIdx % 2 === 0 ? '#0D1324' : '#12192E';
+    ctx.fillRect(x, topY, w - 2, h);
+
+    // Rooftop neon crown bar
+    ctx.fillStyle = neonAccents[bIdx % neonAccents.length];
+    ctx.fillRect(x + 1, topY, w - 4, 3);
+
+    // Fine multi-story window grid
+    for (let wy = topY + 7; wy < 248; wy += 6) {
+      for (let wx = x + 3; wx < x + w - 5; wx += 5) {
+        const hash = (wx * 31 + wy * 53 + bIdx * 11) % 100;
+        if (hash > 38) {
+          ctx.fillStyle = winColors[(wx + wy + bIdx) % winColors.length];
+          ctx.fillRect(wx, wy, 3, 3);
+        }
+      }
+    }
+
+    x += w;
+    bIdx++;
+  }
+
+  // Dense ground-level boulevard city lights
+  for (let i = 0; i < 160; i++) {
+    const lx = (i * 29) % 1024;
+    ctx.fillStyle = i % 3 === 0 ? '#FFD700' : i % 3 === 1 ? '#00E5FF' : '#FF2E93';
+    ctx.fillRect(lx, 246 + (i % 6), 4, 3);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/** High-brightness Las Vegas Strip & Sphere Arena digital LED marquee billboard texture. */
+export function createVegasBillboardTexture(variant: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  const themes = [
+    {
+      bg0: '#19082E',
+      bg1: '#07142C',
+      border: '#FF0080',
+      accent: '#00E5FF',
+      title: 'SPHERE ARENA',
+      sub: 'T-MOBILE ZONE • LAS VEGAS GP',
+    },
+    {
+      bg0: '#081C38',
+      bg1: '#040B1A',
+      border: '#00E5FF',
+      accent: '#FFD700',
+      title: 'THE STRIP',
+      sub: 'LAS VEGAS BLVD • 350 KM/H',
+    },
+    {
+      bg0: '#2A0912',
+      bg1: '#10061C',
+      border: '#FFD700',
+      accent: '#E10600',
+      title: 'BELLAGIO • PARIS',
+      sub: 'CAESARS • VENETIAN • WYNN',
+    },
+    {
+      bg0: '#04261C',
+      bg1: '#071224',
+      border: '#10B981',
+      accent: '#FFFFFF',
+      title: 'HEINEKEN SILVER',
+      sub: 'F1 LAS VEGAS WORLD TOUR',
+    },
+  ];
+  const th = themes[Math.abs(variant) % themes.length];
+
+  const grad = ctx.createLinearGradient(0, 0, 512, 256);
+  grad.addColorStop(0, th.bg0);
+  grad.addColorStop(1, th.bg1);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 256);
+
+  ctx.fillStyle = th.border;
+  ctx.fillRect(0, 0, 512, 12);
+  ctx.fillRect(0, 244, 512, 12);
+  ctx.fillRect(0, 0, 12, 256);
+  ctx.fillRect(500, 0, 12, 256);
+
+  ctx.fillStyle = th.accent;
+  ctx.fillRect(28, 170, 456, 5);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '900 56px "Titillium Web", "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(th.title, 256, 104);
+
+  ctx.fillStyle = th.accent;
+  ctx.font = '800 24px "Titillium Web", Arial, sans-serif';
+  ctx.fillText(th.sub, 256, 206);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}

@@ -160,6 +160,20 @@ describe('TrackMeshBuilder — Ribbon Normals, Closed Seam & World Clearances', 
       built.updateRacingLine(70, 'full', 1.0);
       expect(built.racingLineMesh.visible).toBe(true);
 
+      // Verify the MSG Sphere (Big Shiny Ball) sits inside the T5-T9 Sphere Arena horseshoe at real GPS coordinates
+      const sphereCenter = CIRCUITS['las-vegas'].landmarkCenter!;
+      expect(sphereCenter).toBeDefined();
+      for (const sArena of [0.28, 0.33, 0.37]) {
+        const smp = vegas.sampleAtS(sArena);
+        const distToSphere = Math.hypot(
+          smp.position.x - sphereCenter[0],
+          smp.position.z - sphereCenter[2],
+        );
+        // Track wraps ~140-235m around the 72m-radius Sphere center inside the arena horseshoe
+        expect(distToSphere).toBeGreaterThan(110);
+        expect(distToSphere).toBeLessThan(260);
+      }
+
       built.dispose();
     });
   });

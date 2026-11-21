@@ -97,7 +97,7 @@ describe('2026 F1 Data Integrity — Teams, Drivers, Circuits & Portrait Manifes
       expect(c.realLengthMeters).toBeLessThan(7000);
       expect(c.trackWidth).toBeGreaterThanOrEqual(12);
       expect(c.trackWidth).toBeLessThanOrEqual(18);
-      expect(c.controlPoints.length).toBeGreaterThanOrEqual(12);
+      expect(c.controlPoints.length).toBeGreaterThanOrEqual(64);
       expect(c.activeAeroZones.length).toBeGreaterThanOrEqual(2);
       expect(c.pitEntryS).toBeGreaterThanOrEqual(0);
       expect(c.pitEntryS).toBeLessThan(1);
