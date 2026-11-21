@@ -53,6 +53,7 @@ export interface RaceSettings {
 
 export interface RaceResultEntry {
   position: number;
+  onTrackPosition?: number;
   driver: DriverConfig;
   teamId: TeamId;
   isPlayer: boolean;
@@ -497,10 +498,20 @@ export class RaceManager {
 
       if (car.isPlayer && car.trackLimitWarnings > prevWarnings) {
         if (car.trackLimitWarnings > 3) {
-          this.emitRadio(`Track limits exceeded — +3s penalty applied!`, 'alert');
+          this.emitRadio(
+            totalLaps < 900
+              ? 'Track limits exceeded (all 4 wheels off) — +3s penalty applied!'
+              : 'Track limits exceeded (all 4 wheels off) — stay on track!',
+            'alert',
+          );
+        } else if (car.trackLimitWarnings === 3) {
+          this.emitRadio(
+            'Black & White Flag (3/3)! Next full 4-wheel cut = +3s penalty.',
+            'alert',
+          );
         } else {
           this.emitRadio(
-            `Track limits warning (${car.trackLimitWarnings}/3). Stay inside white lines.`,
+            `Track limits (all 4 wheels off) — Warning ${car.trackLimitWarnings}/3.`,
             'alert',
           );
         }
@@ -580,6 +591,20 @@ export class RaceManager {
       playerCar.finished
     ) {
       this.finalizeRaceResults();
+      const pRes = this.results.find((r) => r.isPlayer);
+      if (pRes && pRes.penaltySeconds > 0) {
+        if (pRes.onTrackPosition && pRes.position > pRes.onTrackPosition) {
+          this.emitRadio(
+            `+${pRes.penaltySeconds}s time penalty applied — classified P${pRes.position} (down from P${pRes.onTrackPosition}).`,
+            'alert',
+          );
+        } else {
+          this.emitRadio(
+            `+${pRes.penaltySeconds}s time penalty applied — classified P${pRes.position}.`,
+            'info',
+          );
+        }
+      }
       this.phase = 'finished';
       events.raceFinished = true;
     }
@@ -651,9 +676,14 @@ export class RaceManager {
         const s3Time = this.raceClockMs - car.sectorStartMs;
         this.recordSectorTime(car, 2, s3Time);
 
+        const completedLapNum = car.lap;
         const lapTime = this.raceClockMs - car.currentLapStartMs;
         car.lastLapMs = lapTime;
+        if (lapTime > 12000) {
+          car.completedLapTimesMs.push(Math.round(lapTime));
+        }
 
+        let announcedPersonalBest = false;
         if (lapTime > 12000 && (car.bestLapMs === 0 || lapTime < car.bestLapMs)) {
           car.bestLapMs = lapTime;
           if (car.isPlayer) {
@@ -667,9 +697,17 @@ export class RaceManager {
                 saveGhostLap(this.settings.circuitId, this.recordingGhost);
                 this.savedGhost = [...this.recordingGhost];
                 this.emitRadio(`NEW PERSONAL BEST: ${formatLapTime(lapTime)}! Ghost saved!`, 'celebrate');
+                announcedPersonalBest = true;
               }
             }
           }
+        }
+
+        if (car.isPlayer && lapTime > 12000 && !announcedPersonalBest) {
+          this.emitRadio(
+            `Lap ${completedLapNum}: ${formatLapTime(lapTime)} • Best: ${formatLapTime(car.bestLapMs)}`,
+            'info',
+          );
         }
 
         if (
@@ -687,7 +725,7 @@ export class RaceManager {
 
         if (car.lap >= totalLaps && this.settings.mode !== 'time-trial') {
           car.finished = true;
-          car.finishTimeMs = this.raceClockMs + car.penaltySeconds * 1000;
+          car.finishTimeMs = this.raceClockMs;
         } else {
           car.lap += 1;
           car.currentLapStartMs = this.raceClockMs;
@@ -789,13 +827,17 @@ export class RaceManager {
     const sorted = this.getSortedCars();
     const leaderCar = sorted[0];
     const leaderTime = leaderCar.finishTimeMs || this.raceClockMs;
+    const avgLapSpeed =
+      (this.track.totalLength / Math.max(1, this.track.config.lapRecord.timeMs / 1000)) * 0.94;
 
-    // 1. Compute raw on-track finish times (estimated for cars still on final meters)
+    // 1. Compute raw on-track finish times (estimated for cars still on final meters using circuit pace)
     const rawTimes = sorted.map((c, idx) => {
       if (c.finished && c.finishTimeMs > 0) return c.finishTimeMs;
       const remProgress = Math.max(0.002, this.settings.laps - c.totalProgress);
       const remMeters = remProgress * this.track.totalLength;
-      const estRemMs = (remMeters / Math.max(38, c.speed)) * 1000;
+      const estSpeed =
+        remMeters < 120 ? Math.max(48, (c.speed + avgLapSpeed) * 0.5) : avgLapSpeed;
+      const estRemMs = (remMeters / estSpeed) * 1000;
       return Math.max(leaderTime + idx * 140, this.raceClockMs + estRemMs);
     });
 
@@ -810,6 +852,7 @@ export class RaceManager {
     const classified = sorted
       .map((car, idx) => ({
         car,
+        onTrackPosition: idx + 1,
         totalTimeMs: rawTimes[idx] + car.penaltySeconds * 1000,
       }))
       .sort((a, b) => a.totalTimeMs - b.totalTimeMs);
@@ -817,7 +860,7 @@ export class RaceManager {
     const baseLapsMs = this.track.config.lapRecord.timeMs * 1.01;
     const winnerTotalMs = classified[0]?.totalTimeMs ?? leaderTime;
 
-    this.results = classified.map(({ car, totalTimeMs }, idx) => {
+    this.results = classified.map(({ car, onTrackPosition, totalTimeMs }, idx) => {
       const driver = this.driversById.get(car.driverId)!;
       const team = resolveDriverTeam(driver, this.settings.yahiaTeamId);
       const pos = idx + 1;
@@ -832,6 +875,7 @@ export class RaceManager {
 
       return {
         position: pos,
+        onTrackPosition,
         driver,
         teamId: team.id,
         isPlayer: car.isPlayer,
@@ -891,7 +935,51 @@ export class RaceManager {
     });
   }
 
+  buildTimeTrialResults(): RaceResultEntry[] {
+    const car = this.getPlayerCar();
+    const driver = this.driversById.get(car.driverId)!;
+    const team = resolveDriverTeam(driver, this.settings.yahiaTeamId);
+    const totalMs =
+      car.completedLapTimesMs.length > 0
+        ? car.completedLapTimesMs.reduce((sum, ms) => sum + ms, 0)
+        : this.raceClockMs;
+    const bestMs = car.bestLapMs > 0 ? car.bestLapMs : car.lastLapMs;
+    return [
+      {
+        position: 1,
+        driver,
+        teamId: team.id,
+        isPlayer: true,
+        totalTimeMs: totalMs,
+        gapMs: 0,
+        bestLapMs: bestMs,
+        penaltySeconds: 0,
+        pointsAwarded: 0,
+        fastestLapBonus: bestMs > 0,
+        pitStops: 0,
+      },
+    ];
+  }
+
   getHUDRows(): HUDDriverRow[] {
+    if (this.phase === 'finished' && this.results.length > 0) {
+      const carsById = new Map(this.cars.map((c) => [c.driverId, c]));
+      return this.results.map((r, idx) => {
+        const car = carsById.get(r.driver.id);
+        return {
+          position: r.position,
+          driver: r.driver,
+          teamId: r.teamId,
+          isPlayer: r.isPlayer,
+          gapText: idx === 0 ? 'LEADER' : `+${(r.gapMs / 1000).toFixed(1)}s`,
+          tireCompound: car?.tireCompound ?? this.settings.startingTire,
+          inPit: Boolean(car && (car.inPitLane || car.pitServicing)),
+          hasFastestLap: r.fastestLapBonus,
+          penaltySeconds: r.penaltySeconds,
+        };
+      });
+    }
+
     const sorted = this.getSortedCars();
     const leader = sorted[0];
 

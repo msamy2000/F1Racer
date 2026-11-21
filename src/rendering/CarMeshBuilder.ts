@@ -200,7 +200,7 @@ function createSteeringDashDisplay(teamAccent: string): {
     const ersPct = Math.round(THREE.MathUtils.clamp(state.ersBattery * 100, 0, 100));
     const aeroStr = state.activeAeroOpen > 0.5 ? 'X-MODE' : 'Z-MODE';
     const rpmFrac = THREE.MathUtils.clamp((state.rpm - 4000) / 9000, 0, 1);
-    const key = `${gearStr}|${kmh}|${Math.round(ersPct / 2)}|${aeroStr}|${state.boostActive ? 1 : 0}|${Math.round(rpmFrac * 15)}`;
+    const key = `${gearStr}|${kmh}|${Math.round(ersPct / 2)}|${aeroStr}|${state.boostActive ? 1 : 0}|${state.basActive ? 1 : 0}|${Math.round(rpmFrac * 15)}`;
     if (key === lastKey) return;
     lastKey = key;
 
@@ -231,13 +231,13 @@ function createSteeringDashDisplay(teamAccent: string): {
     ctx.font = '900 30px "Titillium Web", Arial, sans-serif';
     ctx.fillText(String(kmh), 14, 70);
 
-    // Right: Active Aero & Boost badge
-    ctx.fillStyle = state.boostActive ? '#00E5FF' : teamAccent;
+    // Right: BAS Emergency Flash, Boost, or Active Aero badge
+    ctx.fillStyle = state.basActive ? '#EF4444' : state.boostActive ? '#00E5FF' : teamAccent;
     ctx.fillRect(172, 34, 72, 24);
-    ctx.fillStyle = '#05070D';
+    ctx.fillStyle = state.basActive ? '#FFFFFF' : '#05070D';
     ctx.font = '900 13px "Titillium Web", Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(state.boostActive ? 'BOOST' : aeroStr, 208, 47);
+    ctx.fillText(state.basActive ? 'BAS' : state.boostActive ? 'BOOST' : aeroStr, 208, 47);
 
     // Right lower: Tire temp
     ctx.fillStyle = '#94A3B8';

@@ -43,6 +43,9 @@ export interface RaceHUDCallbacks {
   getPwaState?(): PwaState;
   onToggleEasyAssists?(): boolean;
   isEasyAssistsEnabled?(): boolean;
+  onToggleBas?(): boolean;
+  isBasEnabled?(): boolean;
+  onFinishTimeTrial?(): void;
 }
 
 export class RaceHUD {
@@ -66,6 +69,7 @@ export class RaceHUD {
   private aeroBadgeEl!: HTMLElement;
   private boostBadgeEl!: HTMLElement;
   private overtakeBadgeEl!: HTMLElement;
+  private basBadgeEl!: HTMLElement;
   private tireTextEl!: HTMLElement;
   private pitBadgeEl!: HTMLElement;
   private cameraLabelEl!: HTMLElement;
@@ -75,9 +79,16 @@ export class RaceHUD {
   private fullscreenBtnEl!: HTMLElement;
   private pauseFullscreenBtnEl!: HTMLElement;
   private pauseAssistsBtnEl!: HTMLElement;
+  private pauseBasBtnEl!: HTMLElement;
+  private pauseFinishTtBtnEl!: HTMLElement;
   private pauseSteerModeBtnEl!: HTMLElement;
+  private pauseCurLapEl!: HTMLElement;
+  private pauseLastLapEl!: HTMLElement;
+  private pauseBestLapEl!: HTMLElement;
   private lastPwaState: PwaState | null = null;
+  private lastShownRace: RaceManager | null = null;
   private touchLayerEl!: HTMLElement;
+  private touchBrakeBtnEl!: HTMLElement;
   private touchBoostBtnEl!: HTMLElement;
   private touchBoostPctEl!: HTMLElement;
   private steerButtonsEl!: HTMLElement;
@@ -90,6 +101,11 @@ export class RaceHUD {
   private mSpeedEl!: HTMLElement;
   private mGearEl!: HTMLElement;
   private mLapEl!: HTMLElement;
+  private mLapTimeEl!: HTMLElement;
+  private mBestLapEl!: HTMLElement;
+  private mSectorEls: HTMLElement[] = [];
+  private mBasEl!: HTMLElement;
+  private mPenEl!: HTMLElement;
   private mErsFillEl!: HTMLElement;
   private pauseModalEl!: HTMLElement;
   private mobileMode = false;
@@ -121,6 +137,7 @@ export class RaceHUD {
   }
 
   show(race: RaceManager, cameraMode: CameraMode, isMuted: boolean): void {
+    this.lastShownRace = race;
     this.root.classList.remove('hidden');
     if (!this.builtDom) {
       this.touchControlsEnabled = this.mobileMode;
@@ -172,8 +189,26 @@ export class RaceHUD {
     if (!this.builtDom) return;
     if (paused) {
       this.syncPauseAssistLabels();
+      if (this.lastShownRace) {
+        this.syncPauseTiming(this.lastShownRace);
+      }
     }
     this.pauseModalEl.classList.toggle('hidden', !paused);
+  }
+
+  private syncPauseTiming(race: RaceManager): void {
+    if (!this.builtDom) return;
+    const pCar = race.getPlayerCar();
+    const curLapElapsed =
+      race.phase === 'countdown' ? 0 : Math.max(0, race.raceClockMs - pCar.currentLapStartMs);
+    const bestMs = pCar.bestLapMs > 0 ? pCar.bestLapMs : race.playerPersonalBestLapMs;
+    this.pauseCurLapEl.textContent = formatLapTime(curLapElapsed);
+    this.pauseLastLapEl.textContent = formatLapTime(pCar.lastLapMs);
+    this.pauseBestLapEl.textContent = formatLapTime(bestMs);
+    this.pauseFinishTtBtnEl.classList.toggle(
+      'hidden',
+      race.settings.mode !== 'time-trial' || !this.callbacks.onFinishTimeTrial,
+    );
   }
 
   private syncPauseAssistLabels(): void {
@@ -186,6 +221,15 @@ export class RaceHUD {
       this.pauseAssistsBtnEl.classList.toggle('hidden', false);
     } else {
       this.pauseAssistsBtnEl.classList.add('hidden');
+    }
+    if (this.callbacks.isBasEnabled) {
+      const basOn = this.callbacks.isBasEnabled();
+      this.pauseBasBtnEl.textContent = basOn
+        ? '🛑 BAS (Brake Assist): ON'
+        : '🛑 BAS (Brake Assist): OFF';
+      this.pauseBasBtnEl.classList.toggle('hidden', false);
+    } else {
+      this.pauseBasBtnEl.classList.add('hidden');
     }
     this.pauseSteerModeBtnEl.textContent =
       this.mobileSteerMode === 'buttons'
@@ -259,6 +303,17 @@ export class RaceHUD {
               <span class="asphalt-gear" data-hud="m-gear">G1</span>
             </div>
             <span class="asphalt-lap" data-hud="m-lap">LAP 1/5</span>
+          </div>
+          <div class="asphalt-timing-row">
+            <span class="asphalt-lap-time" data-hud="m-lap-time">0:00.000</span>
+            <span class="asphalt-best-lap" data-hud="m-best-lap">PB --:--.---</span>
+            <div class="asphalt-sectors">
+              <span class="asphalt-sec" data-hud="m-s1">S1</span>
+              <span class="asphalt-sec" data-hud="m-s2">S2</span>
+              <span class="asphalt-sec" data-hud="m-s3">S3</span>
+            </div>
+            <span class="asphalt-bas-pill" data-hud="m-bas">BAS</span>
+            <span class="asphalt-pen-pill hidden" data-hud="m-pen">+0s</span>
           </div>
           <div class="asphalt-ers-track">
             <div class="asphalt-ers-fill" data-hud="m-ers-fill"></div>
@@ -356,13 +411,19 @@ export class RaceHUD {
             <span class="tech-badge" data-hud="aero-badge">Z-MODE</span>
             <span class="tech-badge" data-hud="boost-badge">SPACE: BOOST</span>
             <span class="tech-badge" data-hud="overtake-badge">OTK WAIT</span>
+            <span class="tech-badge bas-ready" data-hud="bas-badge">BAS READY</span>
             <span class="tech-badge hidden" data-hud="pit-badge" style="background:#f59e0b;color:#111;">BOX THIS LAP</span>
           </div>
         </div>
 
         <div class="modal-backdrop hidden" data-hud="pause-modal">
-          <div class="podium-panel" style="width:420px;text-align:center;">
+          <div class="podium-panel" style="width:min(420px, 100%);text-align:center;">
             <div class="section-title">Session Paused</div>
+            <div class="pause-timing-strip">
+              <div class="pause-time-cell"><span>CUR LAP</span><strong data-hud="pause-cur-lap">0:00.000</strong></div>
+              <div class="pause-time-cell"><span>LAST LAP</span><strong data-hud="pause-last-lap">--:--.---</strong></div>
+              <div class="pause-time-cell"><span>BEST LAP</span><strong style="color:#e879f9;" data-hud="pause-best-lap">--:--.---</strong></div>
+            </div>
             <p class="pause-desktop-hint" style="font-size:13px;color:var(--text-muted);">
               W/S Gas & Brake • A/D Steer • Space Boost • C Camera • P Pit Box • R Track Reset
             </p>
@@ -370,7 +431,9 @@ export class RaceHUD {
               Tap ◀ ▶ to steer • Hold BRAKE for sharp corners • Tap ⚡ BOOST on straights
             </p>
             <button class="btn-primary" data-hud-btn="resume">Resume Driving</button>
+            <button class="btn-primary hidden" data-hud-btn="finish-tt">🏁 Finish &amp; Lap Times</button>
             <button class="btn-secondary" data-hud-btn="pause-assists">🧭 Easy Drive Assists: ON</button>
+            <button class="btn-secondary" data-hud-btn="pause-bas">🛑 BAS (Brake Assist): ON</button>
             <button class="btn-secondary mobile-only-pause-btn" data-hud-btn="pause-steer-mode">🎮 Steer: ◀▶ Buttons</button>
             <button class="btn-secondary hidden" data-hud-btn="pause-fullscreen">⛶ Fullscreen Mode</button>
             <button class="btn-secondary" data-hud-btn="restart">Restart Session</button>
@@ -398,6 +461,7 @@ export class RaceHUD {
     this.aeroBadgeEl = q('[data-hud="aero-badge"]');
     this.boostBadgeEl = q('[data-hud="boost-badge"]');
     this.overtakeBadgeEl = q('[data-hud="overtake-badge"]');
+    this.basBadgeEl = q('[data-hud="bas-badge"]');
     this.tireTextEl = q('[data-hud="tire-text"]');
     this.pitBadgeEl = q('[data-hud="pit-badge"]');
     this.cameraLabelEl = q('[data-hud-btn="cam"]');
@@ -407,8 +471,14 @@ export class RaceHUD {
     this.fullscreenBtnEl = q('[data-hud-btn="fullscreen"]');
     this.pauseFullscreenBtnEl = q('[data-hud-btn="pause-fullscreen"]');
     this.pauseAssistsBtnEl = q('[data-hud-btn="pause-assists"]');
+    this.pauseBasBtnEl = q('[data-hud-btn="pause-bas"]');
+    this.pauseFinishTtBtnEl = q('[data-hud-btn="finish-tt"]');
     this.pauseSteerModeBtnEl = q('[data-hud-btn="pause-steer-mode"]');
+    this.pauseCurLapEl = q('[data-hud="pause-cur-lap"]');
+    this.pauseLastLapEl = q('[data-hud="pause-last-lap"]');
+    this.pauseBestLapEl = q('[data-hud="pause-best-lap"]');
     this.touchLayerEl = q('[data-hud="touch-layer"]');
+    this.touchBrakeBtnEl = q('[data-touch="brake"]');
     this.touchBoostBtnEl = q('[data-touch="boost"]');
     this.touchBoostPctEl = q('[data-touch="boost-pct"]');
     this.steerButtonsEl = q('[data-touch="steer-buttons"]');
@@ -420,6 +490,11 @@ export class RaceHUD {
     this.mSpeedEl = q('[data-hud="m-speed"]');
     this.mGearEl = q('[data-hud="m-gear"]');
     this.mLapEl = q('[data-hud="m-lap"]');
+    this.mLapTimeEl = q('[data-hud="m-lap-time"]');
+    this.mBestLapEl = q('[data-hud="m-best-lap"]');
+    this.mSectorEls = [q('[data-hud="m-s1"]'), q('[data-hud="m-s2"]'), q('[data-hud="m-s3"]')];
+    this.mBasEl = q('[data-hud="m-bas"]');
+    this.mPenEl = q('[data-hud="m-pen"]');
     this.mErsFillEl = q('[data-hud="m-ers-fill"]');
     this.pauseModalEl = q('[data-hud="pause-modal"]');
     this.minimapCanvas = q<HTMLCanvasElement>('[data-hud="minimap"]');
@@ -438,8 +513,13 @@ export class RaceHUD {
     });
     q('[data-hud-btn="pause"]').addEventListener('click', () => this.callbacks.onTogglePause());
     q('[data-hud-btn="resume"]').addEventListener('click', () => this.callbacks.onTogglePause());
+    this.pauseFinishTtBtnEl.addEventListener('click', () => this.callbacks.onFinishTimeTrial?.());
     this.pauseAssistsBtnEl.addEventListener('click', () => {
       this.callbacks.onToggleEasyAssists?.();
+      this.syncPauseAssistLabels();
+    });
+    this.pauseBasBtnEl.addEventListener('click', () => {
+      this.callbacks.onToggleBas?.();
       this.syncPauseAssistLabels();
     });
     this.pauseSteerModeBtnEl.addEventListener('click', () => {
@@ -572,6 +652,7 @@ export class RaceHUD {
 
   update(race: RaceManager): void {
     if (!this.builtDom) return;
+    this.lastShownRace = race;
     const pCar = race.getPlayerCar();
 
     // Session header & Lap Counter
@@ -630,7 +711,7 @@ export class RaceHUD {
             <span>${r.driver.code}</span>
             <span style="color:var(--text-muted);text-align:right;">${r.inPit ? 'PIT' : r.gapText}</span>
             <span class="tire-dot" style="border-color:${tire.color};color:${tire.color};">${tire.code}</span>
-            <span>${r.hasFastestLap ? '⚡' : r.penaltySeconds > 0 ? `+${r.penaltySeconds}` : ''}</span>
+            <span>${r.hasFastestLap ? '⚡' : ''}${r.penaltySeconds > 0 ? `<span style="color:#ff4d4d;font-weight:800;">+${r.penaltySeconds}s</span>` : ''}</span>
           </div>
         `;
       })
@@ -667,6 +748,21 @@ export class RaceHUD {
     this.mSpeedEl.textContent = String(kmh);
     this.mGearEl.textContent = gearText;
     this.mLapEl.textContent = lapText;
+    this.mLapTimeEl.textContent = formatLapTime(curLapElapsed);
+    const bestMs = pCar.bestLapMs > 0 ? pCar.bestLapMs : race.playerPersonalBestLapMs;
+    this.mBestLapEl.textContent = bestMs > 0 ? `PB ${formatLapTime(bestMs)}` : 'PB --:--.---';
+    for (let i = 0; i < 3; i++) {
+      const st = race.playerSectorStatuses[i];
+      this.mSectorEls[i].className = `asphalt-sec ${st !== 'none' ? st : ''}`;
+    }
+    const basEnabled = race.settings.assists.brakingAssist !== false;
+    this.mBasEl.classList.toggle('hidden', !basEnabled);
+    this.mBasEl.classList.toggle('active', basEnabled && pCar.basActive);
+    this.mPenEl.classList.toggle('hidden', pCar.penaltySeconds <= 0);
+    if (pCar.penaltySeconds > 0) {
+      this.mPenEl.textContent = `+${pCar.penaltySeconds}s`;
+    }
+    this.touchBrakeBtnEl.classList.toggle('bas-active', pCar.basActive);
     this.mErsFillEl.style.width = `${ersWidthPct}%`;
     this.mErsFillEl.classList.toggle('boosting', pCar.boostActive);
 
@@ -689,6 +785,15 @@ export class RaceHUD {
 
     this.overtakeBadgeEl.textContent = pCar.overtakeArmed ? 'OVERTAKE +0.5MJ' : 'OTK <1.0S';
     this.overtakeBadgeEl.className = `tech-badge ${pCar.overtakeArmed ? 'overtake-on' : ''}`;
+
+    this.basBadgeEl.textContent = !basEnabled
+      ? 'BAS OFF'
+      : pCar.basActive
+        ? '🛑 BAS ACTIVE'
+        : 'BAS READY';
+    this.basBadgeEl.className = `tech-badge ${!basEnabled ? '' : pCar.basActive ? 'bas-on' : 'bas-ready'}`;
+
+    this.syncPauseTiming(race);
 
     const tSpec = TIRE_SPECS[pCar.tireCompound];
     const lifePct = Math.max(0, Math.round((1 - pCar.tireWear) * 100));

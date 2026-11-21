@@ -459,3 +459,312 @@ export function createCircuitGantryBannerTexture(
   tex.anisotropy = 16;
   return tex;
 }
+
+/** Multi-layer alpha-cutout 3D foliage cluster texture (tinted per instance in TrackMeshBuilder). */
+export function createFoliageCanopyTexture(
+  kind: 'deciduous' | 'pine' | 'cypress' | 'palm',
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 256, 256);
+
+  if (kind === 'pine') {
+    // Tiered spruce/pine boughs from spire tip (y=18) down to broad skirt (y=244)
+    const tiers = 7;
+    for (let t = 0; t < tiers; t++) {
+      const frac = t / (tiers - 1);
+      const cy = 30 + frac * 195;
+      const halfSpan = 20 + frac * 94;
+      const puffCount = 5 + Math.round(frac * 8);
+      for (let p = 0; p < puffCount; p++) {
+        const pf = puffCount === 1 ? 0 : (p / (puffCount - 1)) * 2 - 1;
+        const px = 128 + pf * halfSpan + Math.sin(t * 7 + p * 3) * 7;
+        const py = cy + Math.abs(pf) * 14 + Math.cos(t * 5 + p) * 5;
+        const r = 13 + (1 - Math.abs(pf) * 0.35) * 14;
+        ctx.fillStyle =
+          py < cy + 8 ? 'rgba(210, 232, 190, 0.96)' : 'rgba(132, 162, 120, 0.96)';
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else if (kind === 'cypress') {
+    // Tall slender Tuscan/Monza Italian cypress column
+    for (let i = 0; i < 42; i++) {
+      const frac = i / 41;
+      const y = 18 + frac * 226;
+      const halfW = 10 + Math.sin(Math.pow(frac, 0.72) * Math.PI * 0.92) * 34;
+      const jitterX = Math.sin(i * 11.3) * (halfW * 0.45);
+      const r = 12 + (1 - Math.abs(frac - 0.6)) * 9;
+      ctx.fillStyle =
+        i % 3 === 0 ? 'rgba(198, 224, 178, 0.96)' : 'rgba(128, 158, 118, 0.96)';
+      ctx.beginPath();
+      ctx.arc(128 + jitterX, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (kind === 'palm') {
+    // Arching Vegas Strip palm fronds radiating from crown hub
+    const fronds = 10;
+    for (let f = 0; f < fronds; f++) {
+      const ang = (f / fronds) * Math.PI * 2 + (f % 2) * 0.14;
+      const dx = Math.cos(ang);
+      const dy = Math.sin(ang);
+      const px = -dy;
+      const py = dx;
+      const tipX = 128 + dx * 108;
+      const tipY = 112 + dy * 88 + 26;
+      const ctrlX = 128 + dx * 62;
+      const ctrlY = 112 + dy * 38 - 18;
+      ctx.strokeStyle = f % 2 === 0 ? '#5b8a42' : '#4a7736';
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.moveTo(128, 112);
+      ctx.bezierCurveTo(ctrlX, ctrlY, tipX - dx * 18, tipY - 12, tipX, tipY);
+      ctx.stroke();
+
+      // Leaflets along frond spine
+      for (let s = 2; s <= 7; s++) {
+        const lt = s / 8;
+        const lx = 128 + (tipX - 128) * lt;
+        const ly = 112 + (tipY - 112) * lt - Math.sin(lt * Math.PI) * 14;
+        ctx.fillStyle = s > 5 ? 'rgba(130, 184, 86, 0.95)' : 'rgba(92, 146, 62, 0.95)';
+        ctx.beginPath();
+        ctx.arc(lx + px * 7, ly + py * 7, 8, 0, Math.PI * 2);
+        ctx.arc(lx - px * 7, ly - py * 7, 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else {
+    // Broad deciduous park oak/beech foliage cluster (tinted per tree instance)
+    for (let i = 0; i < 64; i++) {
+      const hashA = ((i * 73 + 19) % 100) / 100;
+      const hashB = ((i * 137 + 41) % 100) / 100;
+      const ang = hashA * Math.PI * 2;
+      const rad = Math.sqrt(hashB) * 74;
+      const cx = 128 + Math.cos(ang) * rad;
+      const cy = 124 + Math.sin(ang) * rad * 0.88;
+      const r = 18 + (i % 5) * 4.5;
+      ctx.fillStyle =
+        cy < 98
+          ? 'rgba(228, 244, 206, 0.94)'
+          : i % 2 === 0
+            ? 'rgba(176, 204, 152, 0.95)'
+            : 'rgba(128, 158, 114, 0.95)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/** Furrowed vertical bark texture for realistic tree trunks. */
+export function createBarkTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, 128, 0);
+  grad.addColorStop(0, '#3a2b1d');
+  grad.addColorStop(0.5, '#523e2c');
+  grad.addColorStop(1, '#34261a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 256);
+
+  for (let i = 0; i < 42; i++) {
+    const x = (i * 29 + (i % 5) * 7) % 124;
+    const y = (i * 47) % 210;
+    const h = 24 + (i % 6) * 10;
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(24, 16, 10, 0.55)' : 'rgba(104, 86, 66, 0.32)';
+    ctx.fillRect(x, y, 4 + (i % 3), h);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Continuous 360-degree woodland horizon wall alpha-cutout texture. */
+export function createTreelineWallTexture(
+  atmosphere: 'alpine-day' | 'golden-park' | 'british-day',
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 1024, 256);
+
+  const deep =
+    atmosphere === 'alpine-day'
+      ? '#16301b'
+      : atmosphere === 'golden-park'
+        ? '#20361b'
+        : '#1e3820';
+  const mid =
+    atmosphere === 'alpine-day'
+      ? '#234a2b'
+      : atmosphere === 'golden-park'
+        ? '#315025'
+        : '#2b4f2d';
+  const lit =
+    atmosphere === 'alpine-day'
+      ? '#34663c'
+      : atmosphere === 'golden-park'
+        ? '#4c6d31'
+        : '#3d693d';
+
+  // Solid deep woodland understory floor band
+  const floorGrad = ctx.createLinearGradient(0, 130, 0, 256);
+  floorGrad.addColorStop(0, mid);
+  floorGrad.addColorStop(1, deep);
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(0, 136, 1024, 120);
+
+  // Overlapping jagged/rounded tree crowns forming organic skyline silhouette
+  for (let i = 0; i < 110; i++) {
+    const x = (i / 110) * 1024;
+    const crownH = 52 + ((i * 37) % 68);
+    const cy = 152 - crownH * 0.55;
+    const r = 18 + ((i * 19) % 24);
+    ctx.fillStyle = i % 3 === 0 ? lit : i % 3 === 1 ? mid : deep;
+    ctx.beginPath();
+    ctx.arc(x, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    if (atmosphere === 'alpine-day' || i % 2 === 0) {
+      ctx.beginPath();
+      ctx.arc(x, cy - r * 0.65, r * 0.56, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/** Realistic dual-wheel rubbered braking-zone skid marks deposited before corner apexes. */
+export function createBrakingZoneSkidTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 256, 512);
+
+  for (const gx of [72, 160]) {
+    const grad = ctx.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0, 'rgba(12, 14, 18, 0.0)');
+    grad.addColorStop(0.28, 'rgba(12, 14, 18, 0.42)');
+    grad.addColorStop(0.84, 'rgba(12, 14, 18, 0.52)');
+    grad.addColorStop(1, 'rgba(12, 14, 18, 0.0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(gx, 0, 24, 512);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/** Circuit-branded grandstand architectural fascia banner. */
+export function createGrandstandBannerTexture(circuitId: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  const spec =
+    circuitId === 'red-bull-ring'
+      ? { bg: '#0E1930', acc: '#E10600', label: 'RED BULL RING · SPIELBERG · AUSTRIA' }
+      : circuitId === 'monza'
+        ? { bg: '#0E4A25', acc: '#E10600', label: 'AUTODROMO NAZIONALE MONZA · ITALIA' }
+        : circuitId === 'silverstone'
+          ? { bg: '#0B1D3A', acc: '#E10600', label: 'SILVERSTONE · BRITISH GRAND PRIX' }
+          : { bg: '#120A24', acc: '#00E5FF', label: 'LAS VEGAS STRIP · NIGHT GRAND PRIX' };
+
+  ctx.fillStyle = spec.bg;
+  ctx.fillRect(0, 0, 1024, 128);
+  ctx.fillStyle = spec.acc;
+  ctx.fillRect(0, 0, 1024, 12);
+  ctx.fillRect(0, 116, 1024, 12);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '800 40px "Inter", "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(spec.label, 512, 66);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/** FIA digital trackside LED marshal status panel (green flag condition). */
+export function createFiaLightPanelTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#0D1017';
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.strokeStyle = '#FACC15';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(4, 4, 120, 120);
+
+  ctx.fillStyle = '#10B981';
+  for (let y = 24; y <= 104; y += 20) {
+    for (let x = 24; x <= 104; x += 20) {
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Paddock team transporter semi-trailer livery texture. */
+export function createPaddockTruckTexture(
+  teamName: string,
+  primaryHex: string,
+  accentHex: string,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#151A26';
+  ctx.fillRect(0, 0, 512, 192);
+  ctx.fillStyle = primaryHex;
+  ctx.fillRect(0, 0, 512, 26);
+  ctx.fillRect(0, 166, 512, 26);
+  ctx.fillStyle = accentHex;
+  ctx.fillRect(0, 26, 512, 6);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '800 32px "Inter", "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(teamName, 256, 98);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}

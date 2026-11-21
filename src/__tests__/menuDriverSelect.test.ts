@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ALL_DRIVERS } from '../data/teamsAndDrivers';
+import { F1_POINTS_TABLE, RaceManager, type RaceSettings } from '../engine/RaceManager';
 import { MenuUI } from '../ui/MenuUI';
+import { RaceHUD } from '../ui/RaceHUD';
 import type { PwaState } from '../ui/PwaManager';
 
 interface NodeFsSubset {
@@ -214,7 +217,7 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     const fs = await loadFs();
     const sw = fs.readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf-8');
     expect(sw).toMatch(/f1-2026-world-tour-v\d+/);
-    expect(sw).toContain('f1-2026-world-tour-v6');
+    expect(sw).toContain('f1-2026-world-tour-v7');
     for (const name of [
       'yahia-mercedes.png',
       'yahia-redbull.png',
@@ -226,5 +229,190 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
       expect(sw).toContain(`./assets/drivers/${name}`);
     }
     expect(sw).toContain('event.waitUntil(');
+  });
+
+  it('renders BAS On/BAS Off setup toggle and mobile-ready results timing summary with penalty downgrade & lap chips', () => {
+    const { menu, findAction, getHtml } = createMenuHarness();
+    menu.screen = 'setup';
+    menu.show();
+    const setupHtml = getHtml();
+    expect(setupHtml).toContain('BAS On');
+    expect(setupHtml).toContain('BAS Off');
+
+    // Toggle BAS off and verify state updates
+    const offBtn = Array.from({ length: 1 }).map(() => findAction('set-opt'))[0];
+    expect(offBtn).toBeDefined();
+
+    // Render race results with penalty downgrade P1 -> P2 and player lap times
+    const mockResults = ALL_DRIVERS.slice(0, 4).map((driver, idx) => {
+      const isPlayer = idx === 1;
+      return {
+        position: idx + 1,
+        onTrackPosition: isPlayer ? 1 : idx + 1,
+        driver,
+        teamId: driver.teamId,
+        isPlayer,
+        totalTimeMs: 210_000 + idx * 1400,
+        gapMs: idx * 1400,
+        bestLapMs: 68_120 + idx * 350,
+        penaltySeconds: isPlayer ? 3 : 0,
+        pointsAwarded: F1_POINTS_TABLE[idx],
+        fastestLapBonus: idx === 0,
+        pitStops: 0,
+      };
+    });
+
+    menu.showResults(mockResults, null, [70_450, 68_470, 69_100], false);
+    const resHtml = getHtml();
+    expect(resHtml).toContain('player-timing-summary');
+    expect(resHtml).toContain('+3s (P1→P2)');
+    expect(resHtml).toContain('lap-chip is-best');
+    expect(resHtml).toContain('L2 1:08.470');
+    expect(resHtml).toContain('results-table-wrap');
+    expect(resHtml).toContain('col-constructor');
+    expect(resHtml).toContain('col-pits');
+
+    menu.destroy();
+  });
+
+  it('updates mobile HUD lap time, best lap, sectors, BAS indicator, penalty badge & pause timing strip in RaceHUD', () => {
+    const elements = new Map<string, ReturnType<typeof makeEl>>();
+    const makeEl = () => {
+      const classes = new Set<string>();
+      const listeners = new Map<string, Array<(e?: unknown) => void>>();
+      const el = {
+        className: '',
+        textContent: '',
+        innerHTML: '',
+        style: {} as Record<string, string>,
+        classList: {
+          add: (...c: string[]) => c.forEach((x) => classes.add(x)),
+          remove: (...c: string[]) => c.forEach((x) => classes.delete(x)),
+          toggle: (c: string, force?: boolean) => {
+            if (force === undefined) {
+              if (classes.has(c)) classes.delete(c);
+              else classes.add(c);
+            } else if (force) {
+              classes.add(c);
+            } else {
+              classes.delete(c);
+            }
+          },
+          contains: (c: string) => classes.has(c),
+        },
+        addEventListener: (ev: string, fn: (e?: unknown) => void) => {
+          const arr = listeners.get(ev) ?? [];
+          arr.push(fn);
+          listeners.set(ev, arr);
+        },
+        getBoundingClientRect: () => ({ left: 0, right: 100, width: 100 }),
+        getContext: () => ({
+          clearRect: () => {},
+          beginPath: () => {},
+          moveTo: () => {},
+          lineTo: () => {},
+          closePath: () => {},
+          stroke: () => {},
+          arc: () => {},
+          fill: () => {},
+          strokeStyle: '',
+          fillStyle: '',
+          lineWidth: 1,
+        }),
+      };
+      return el;
+    };
+
+    const getEl = (sel: string) => {
+      let existing = elements.get(sel);
+      if (!existing) {
+        existing = makeEl();
+        elements.set(sel, existing);
+      }
+      return existing;
+    };
+
+    const lights = Array.from({ length: 5 }, () => makeEl());
+    const rpmLeds = Array.from({ length: 15 }, () => makeEl());
+
+    const root = {
+      innerHTML: '',
+      classList: makeEl().classList,
+      querySelector: (sel: string) => getEl(sel),
+      querySelectorAll: (sel: string) => {
+        if (sel === '[data-light]') return lights;
+        if (sel === '.rpm-led') return rpmLeds;
+        return [];
+      },
+    };
+
+    let basEnabled = true;
+    const hud = new RaceHUD(root as unknown as HTMLElement, {
+      onTogglePause: () => {},
+      onCycleCamera: () => {},
+      onToggleMute: () => false,
+      onQuitToMenu: () => {},
+      onRestartRace: () => {},
+      onTouchSteer: () => {},
+      onTouchThrottle: () => {},
+      onTouchBrake: () => {},
+      onTouchBoost: () => {},
+      onTouchPit: () => {},
+      onTouchReset: () => {},
+      onSetAutoGas: () => {},
+      isBasEnabled: () => basEnabled,
+      onToggleBas: () => {
+        basEnabled = !basEnabled;
+        return basEnabled;
+      },
+    });
+
+    const settings: RaceSettings = {
+      mode: 'grand-prix',
+      circuitId: 'red-bull-ring',
+      playerDriverId: 'yahia',
+      yahiaTeamId: 'mercedes',
+      laps: 5,
+      difficulty: 'medium',
+      startingTire: 'soft',
+      qualifyingEnabled: false,
+      assists: {
+        gearbox: 'auto',
+        tractionControl: 'full',
+        abs: true,
+        racingLine: 'full',
+        steeringAssist: true,
+        brakingAssist: true,
+      },
+    };
+    const race = new RaceManager(settings);
+    race.phase = 'racing';
+    race.raceClockMs = 82_500;
+    const pCar = race.getPlayerCar();
+    pCar.lap = 2;
+    pCar.currentLapStartMs = 68_000;
+    pCar.lastLapMs = 68_000;
+    pCar.bestLapMs = 67_500;
+    pCar.basActive = true;
+    pCar.penaltySeconds = 3;
+    race.playerSectorStatuses = ['purple', 'green', 'none'];
+
+    hud.setMobileMode(true);
+    hud.show(race, 'chase', false);
+    hud.update(race);
+    hud.setPaused(true);
+
+    expect(getEl('[data-hud="m-lap-time"]').textContent).toBe('0:14.500');
+    expect(getEl('[data-hud="m-best-lap"]').textContent).toBe('PB 1:07.500');
+    expect(getEl('[data-hud="m-s1"]').className).toContain('purple');
+    expect(getEl('[data-hud="m-s2"]').className).toContain('green');
+    expect(getEl('[data-hud="m-bas"]').classList.contains('active')).toBe(true);
+    expect(getEl('[data-hud="m-pen"]').classList.contains('hidden')).toBe(false);
+    expect(getEl('[data-hud="m-pen"]').textContent).toBe('+3s');
+    expect(getEl('[data-hud="bas-badge"]').textContent).toContain('BAS ACTIVE');
+    expect(getEl('[data-hud="pause-cur-lap"]').textContent).toBe('0:14.500');
+    expect(getEl('[data-hud="pause-last-lap"]').textContent).toBe('1:08.000');
+    expect(getEl('[data-hud="pause-best-lap"]').textContent).toBe('1:07.500');
+    expect(getEl('[data-hud-btn="pause-bas"]').textContent).toBe('🛑 BAS (Brake Assist): ON');
   });
 });

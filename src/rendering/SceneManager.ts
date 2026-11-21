@@ -294,11 +294,13 @@ export class SceneManager {
   }
 
   applyAtmosphere(preset: AtmospherePreset): void {
-    this.setSunShadowFrustum(58, 25, 340);
+    this.setSunShadowFrustum(74, 20, 360);
+    this.sunLight.shadow.bias = -0.00035;
+    this.sunLight.shadow.normalBias = 0.03;
 
     if (preset === 'vegas-night') {
       this.scene.background = new THREE.Color('#060914');
-      this.scene.fog = new THREE.FogExp2('#080C1C', 0.00105);
+      this.scene.fog = new THREE.FogExp2('#080C1C', 0.00075);
       this.hemiLight.color.set('#7DA2FF');
       this.hemiLight.groundColor.set('#141826');
       this.hemiLight.intensity = 0.65;
@@ -310,7 +312,7 @@ export class SceneManager {
       this.bloomPass.threshold = 1.15;
     } else if (preset === 'golden-park') {
       this.scene.background = new THREE.Color('#B88456');
-      this.scene.fog = new THREE.FogExp2('#9E7F64', 0.00028);
+      this.scene.fog = new THREE.FogExp2('#9E7F64', 0.00024);
       this.hemiLight.color.set('#E6CEB0');
       this.hemiLight.groundColor.set('#1D2915');
       this.hemiLight.intensity = 0.42;
@@ -322,7 +324,7 @@ export class SceneManager {
       this.bloomPass.threshold = 1.65;
     } else if (preset === 'alpine-day') {
       this.scene.background = new THREE.Color('#4F8CC8');
-      this.scene.fog = new THREE.FogExp2('#719AC2', 0.00025);
+      this.scene.fog = new THREE.FogExp2('#719AC2', 0.00022);
       this.hemiLight.color.set('#CBE2FA');
       this.hemiLight.groundColor.set('#1E311B');
       this.hemiLight.intensity = 0.44;
@@ -335,7 +337,7 @@ export class SceneManager {
     } else {
       // British day (Silverstone)
       this.scene.background = new THREE.Color('#6D8FAD');
-      this.scene.fog = new THREE.FogExp2('#7B8FA3', 0.00032);
+      this.scene.fog = new THREE.FogExp2('#7B8FA3', 0.00026);
       this.hemiLight.color.set('#CDDCEB');
       this.hemiLight.groundColor.set('#1E2C1C');
       this.hemiLight.intensity = 0.48;

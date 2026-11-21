@@ -253,6 +253,40 @@ const hud = new RaceHUD(hudLayer, {
     }
     return next;
   },
+  isBasEnabled() {
+    const assists = activeRace?.settings.assists ?? menuUI.assists;
+    return assists.brakingAssist !== false;
+  },
+  onToggleBas() {
+    const current = activeRace?.settings.assists ?? menuUI.assists;
+    const next = !(current.brakingAssist !== false);
+    if (activeRace) {
+      activeRace.settings.assists.brakingAssist = next;
+    }
+    menuUI.assists.brakingAssist = next;
+    if (lastRaceSettings) {
+      lastRaceSettings.assists.brakingAssist = next;
+    }
+    return next;
+  },
+  onFinishTimeTrial() {
+    if (!activeRace || activeRace.settings.mode !== 'time-trial') return;
+    const ttResults = activeRace.buildTimeTrialResults();
+    const playerLaps = [...activeRace.getPlayerCar().completedLapTimesMs];
+    const finishedSettings = activeRace.settings;
+    const p1Driver = activeRace.getPlayerDriver();
+    const pColors: [string, string, string] = [
+      TEAMS[finishedSettings.yahiaTeamId].primaryColor,
+      TEAMS.mercedes.primaryColor,
+      TEAMS.redbull.primaryColor,
+    ];
+
+    audio.setEngineActive(false);
+    hud.hide();
+    cleanupActiveSession();
+    sceneManager.enterPodiumCeremony(p1Driver, finishedSettings.yahiaTeamId, pColors);
+    menuUI.showResults(ttResults, null, playerLaps, true);
+  },
 });
 
 const deviceProfile = new DeviceProfileManager(uiRoot);
@@ -348,6 +382,7 @@ function animate(nowMs: number): void {
       hud.hide();
       const finishedResults = race.results;
       const finishedSettings = race.settings;
+      const playerLaps = [...race.getPlayerCar().completedLapTimesMs];
       const winnerEntry = finishedResults[0];
       const p1Driver = winnerEntry?.driver ?? race.getPlayerDriver();
       const pColors: [string, string, string] = [
@@ -374,7 +409,12 @@ function animate(nowMs: number): void {
         saveChampionshipState(activeChamp);
       }
 
-      menuUI.showResults(finishedResults, finishedSettings.mode === 'championship' ? activeChamp : null);
+      menuUI.showResults(
+        finishedResults,
+        finishedSettings.mode === 'championship' ? activeChamp : null,
+        playerLaps,
+        false,
+      );
       return;
     }
   }

@@ -107,12 +107,14 @@ export interface CarState {
   prevS: number;
   lateralOffset: number;
   headingError: number;
+  wheelsOffTrack: number;
   lap: number; // 1-indexed once race starts (0 before crossing grid start)
   totalProgress: number; // continuous lap + s
   finished: boolean;
   finishTimeMs: number;
   bestLapMs: number;
   lastLapMs: number;
+  completedLapTimesMs: number[];
   currentLapStartMs: number;
   sectorTimesMs: [number, number, number];
   currentSector: 1 | 2 | 3;
@@ -120,6 +122,41 @@ export interface CarState {
   trackLimitWarnings: number;
   penaltySeconds: number;
   cornerCutCooldown: number;
+  cornerCutHoldTimer: number;
+
+  // Brake Assist System (BAS) telemetry
+  basActive: boolean;
+  basIntensity: number;
+  upcomingBrakeZone: number;
+}
+
+const CAR_HALF_TRACK_M = 0.9;
+const CAR_HALF_WHEELBASE_M = 1.7;
+const WHITE_LINE_OUTER_MARGIN_M = 0.12;
+
+/**
+ * Counts how many of the car's 4 tires lie completely beyond the FIA white track line.
+ * Under FIA rules, all 4 wheels must leave the track before a track-limits offense occurs.
+ */
+export function countWheelsOffTrack(
+  lateralOffset: number,
+  headingError: number,
+  halfWidth: number,
+): number {
+  const cosH = Math.cos(headingError);
+  const sinH = Math.sin(headingError);
+  const limit = halfWidth + WHITE_LINE_OUTER_MARGIN_M;
+  let offCount = 0;
+
+  for (const r of [-CAR_HALF_TRACK_M, CAR_HALF_TRACK_M]) {
+    for (const f of [CAR_HALF_WHEELBASE_M, -CAR_HALF_WHEELBASE_M]) {
+      const wheelLat = lateralOffset + r * cosH - f * sinH;
+      if (Math.abs(wheelLat) > limit) {
+        offCount += 1;
+      }
+    }
+  }
+  return offCount;
 }
 
 const GEAR_RATIOS = [0, 3.65, 2.74, 2.16, 1.75, 1.44, 1.21, 1.03, 0.89];
@@ -196,12 +233,14 @@ export function createInitialCarState(
     prevS: startS,
     lateralOffset,
     headingError: 0,
+    wheelsOffTrack: 0,
     lap: rollingStart ? 1 : 0,
     totalProgress: startS - 1, // < 0 before crossing start/finish line on Lap 1
     finished: false,
     finishTimeMs: 0,
     bestLapMs: 0,
     lastLapMs: 0,
+    completedLapTimesMs: [],
     currentLapStartMs: 0,
     sectorTimesMs: [0, 0, 0],
     currentSector: 1,
@@ -209,6 +248,10 @@ export function createInitialCarState(
     trackLimitWarnings: 0,
     penaltySeconds: 0,
     cornerCutCooldown: 0,
+    cornerCutHoldTimer: 0,
+    basActive: false,
+    basIntensity: 0,
+    upcomingBrakeZone: 0,
   };
 }
 
@@ -240,13 +283,20 @@ export function stepCarPhysics(
     return track.projectToTrack(car.x, car.z, car.heading, car.sampleIndex);
   }
 
-  // Pit stop servicing standstill
+  // Pit stop servicing standstill (locked squarely on the painted pit box between engineers)
   if (car.pitServicing) {
+    const pitBox = track.getPitBoxPose();
     car.speed = 0;
     car.lateralSpeed = 0;
     car.throttleApplied = 0;
     car.brakeApplied = 1;
     car.rpm = 4400;
+    car.x = pitBox.position.x;
+    car.y = pitBox.position.y;
+    car.z = pitBox.position.z;
+    car.heading = pitBox.heading;
+    car.steerAngle = 0;
+    car.roll = 0;
     car.pitStopTimer -= dt;
     if (car.pitStopTimer <= 0) {
       car.pitServicing = false;
@@ -261,6 +311,9 @@ export function stepCarPhysics(
     }
     const pitProj = track.projectToTrack(car.x, car.z, car.heading, car.sampleIndex);
     applyTrackProjectionToCar(car, pitProj, true);
+    car.s = pitBox.s;
+    car.prevS = pitBox.s;
+    car.roll = 0;
     return pitProj;
   }
 
@@ -293,54 +346,124 @@ export function stepCarPhysics(
   let effectiveThrottle = input.throttle;
   let effectiveBrake = input.brake;
 
+  car.basActive = false;
+  car.basIntensity = 0;
+  car.upcomingBrakeZone = 0;
+
   if (car.inPitLane) {
+    const pitBox = track.getPitBoxPose();
     const targetLat = track.getPitLaneLateralOffset(proj.s);
     const latErr = targetLat - proj.lateralOffset;
     const autoSteer = Math.max(-0.85, Math.min(0.85, latErr * 0.14 + proj.headingError * 1.4));
     effectiveSteer = autoSteer;
 
-    // Detect pit box arrival roughly halfway through pit lane
-    const entry = track.config.pitEntryS;
-    const exit = track.config.pitExitS;
-    const span = entry <= exit ? exit - entry : 1 - entry + exit;
-    const pitProg =
-      proj.s >= entry ? (proj.s - entry) / span : (1 - entry + proj.s) / span;
+    // Measure signed circular forward distance to the painted pit box between the engineers
+    let dsToBox = pitBox.s - proj.s;
+    if (dsToBox > 0.5) dsToBox -= 1;
+    if (dsToBox < -0.5) dsToBox += 1;
+    const distToBoxMeters = dsToBox * track.totalLength;
 
-    if (!car.pitStopDoneThisVisit && pitProg >= 0.45 && pitProg <= 0.62) {
+    if (!car.pitStopDoneThisVisit && distToBoxMeters <= 1.6 && distToBoxMeters >= -10) {
       car.pitServicing = true;
       car.pitStopTimer = 2.4;
       car.speed = 0;
-      applyTrackProjectionToCar(car, proj, true);
-      return proj;
+      car.lateralSpeed = 0;
+      car.x = pitBox.position.x;
+      car.y = pitBox.position.y;
+      car.z = pitBox.position.z;
+      car.heading = pitBox.heading;
+      car.steerAngle = 0;
+      car.roll = 0;
+      const pitProj = track.projectToTrack(car.x, car.z, car.heading, car.sampleIndex);
+      applyTrackProjectionToCar(car, pitProj, true);
+      car.s = pitBox.s;
+      car.roll = 0;
+      return pitProj;
     }
 
-    const pitLimitMps = 22.2; // 80 km/h
-    if (car.speed > pitLimitMps) {
+    let targetPitSpeed = 22.2; // 80 km/h
+    if (!car.pitStopDoneThisVisit && distToBoxMeters > 1.6 && distToBoxMeters <= 26) {
+      targetPitSpeed = Math.max(5.5, Math.min(22.2, Math.sqrt(2 * 9.5 * distToBoxMeters)));
+    }
+    if (car.speed > targetPitSpeed) {
       effectiveThrottle = 0;
-      effectiveBrake = Math.min(1, (car.speed - pitLimitMps) * 0.45);
+      effectiveBrake = Math.min(1, (car.speed - targetPitSpeed) * 0.45);
     } else {
       effectiveThrottle = Math.max(effectiveThrottle, 0.72);
     }
   }
 
-  // Optional player-friendly driving assists (off in pit lane; bypassed on Boost / manual Brake)
+  // Optional player-friendly driving assists (off in pit lane)
   if (car.isPlayer && !car.inPitLane && car.speed > 1.5) {
-    if (assists.brakingAssist && car.speed > 14 && !input.boost) {
+    if (assists.brakingAssist) {
       const dsMeters = track.totalLength / Math.max(1, track.samples.length);
-      const lookDist = 14 + car.speed * 0.48;
-      const steps = Math.max(2, Math.round(lookDist / dsMeters));
-      let minRecSpeed = track.sampleAtIndex(proj.sampleIndex).recommendedSpeed;
+      const lookDist = THREE.MathUtils.clamp(22 + (car.speed * car.speed) / 45, 24, 190);
+      const steps = Math.max(3, Math.round(lookDist / dsMeters));
+      const nearMaxSteps = Math.max(2, Math.round((14 + car.speed * 0.45) / dsMeters));
+      let peakReqDecel = 0;
+      let minNearRec = track.sampleAtIndex(proj.sampleIndex).recommendedSpeed;
+
       for (let i = 1; i <= steps; i++) {
-        const s = track.sampleAtIndex(proj.sampleIndex + i);
-        if (s.recommendedSpeed < minRecSpeed) {
-          minRecSpeed = s.recommendedSpeed;
+        const sAhead = track.sampleAtIndex(proj.sampleIndex + i);
+        if (i <= nearMaxSteps && sAhead.recommendedSpeed < minNearRec) {
+          minNearRec = sAhead.recommendedSpeed;
+        }
+        const targetV = sAhead.recommendedSpeed * 1.04;
+        if (car.speed > targetV) {
+          const distMeters = Math.max(4, i * dsMeters);
+          const reqDecel = (car.speed * car.speed - targetV * targetV) / (2 * distMeters);
+          if (reqDecel > peakReqDecel) {
+            peakReqDecel = reqDecel;
+          }
         }
       }
-      if (car.speed > minRecSpeed * 1.06) {
-        const overspeed = car.speed - minRecSpeed * 1.04;
-        const assistBrake = Math.min(0.86, overspeed * 0.14);
-        effectiveThrottle = Math.min(effectiveThrottle, Math.max(0, 1 - overspeed * 0.25));
-        effectiveBrake = Math.max(effectiveBrake, assistBrake);
+
+      car.upcomingBrakeZone = THREE.MathUtils.clamp((peakReqDecel - 10) / 14, 0, 1);
+
+      // Predictive corner stopping-distance BAS (bypassed only when holding Boost)
+      if (car.speed > 14 && !input.boost) {
+        const cornerBas =
+          peakReqDecel > 14.0
+            ? THREE.MathUtils.clamp((peakReqDecel - 13.5) / 14.5, 0, 0.96)
+            : 0;
+        const nearBas =
+          car.speed > minNearRec * 1.06
+            ? Math.min(0.88, (car.speed - minNearRec * 1.04) * 0.14)
+            : 0;
+        const autoBasBrake = Math.max(cornerBas, nearBas);
+        if (autoBasBrake > 0.04) {
+          effectiveThrottle = Math.min(effectiveThrottle, Math.max(0, 1 - autoBasBrake * 1.35));
+          effectiveBrake = Math.max(effectiveBrake, autoBasBrake);
+          car.basActive = true;
+          car.basIntensity = autoBasBrake;
+        }
+      }
+
+      // Emergency manual Brake Pressure Amplification BAS (heavy corner OR slower car closely ahead)
+      if (input.brake > 0.25 && car.speed > 18) {
+        let slowCarAhead = false;
+        for (const other of allCars) {
+          if (other.driverId === car.driverId || other.inPitLane) continue;
+          let dsNorm = other.s - proj.s;
+          if (dsNorm < 0) dsNorm += 1;
+          const distAhead = dsNorm * track.totalLength;
+          if (
+            distAhead > 3.5 &&
+            distAhead < 24 &&
+            Math.abs(other.lateralOffset - proj.lateralOffset) < 2.4 &&
+            car.speed - other.speed > 8
+          ) {
+            slowCarAhead = true;
+            break;
+          }
+        }
+
+        if (peakReqDecel > 15 || slowCarAhead) {
+          const emergencyBrake = Math.min(1.0, input.brake * 1.4 + 0.35);
+          effectiveBrake = Math.max(effectiveBrake, emergencyBrake);
+          car.basActive = true;
+          car.basIntensity = Math.max(car.basIntensity, emergencyBrake);
+        }
       }
     }
 
@@ -385,7 +508,7 @@ export function stepCarPhysics(
     }
   }
 
-  // Surface detection (asphalt / kerbs / off-track gravel-grass)
+  // Surface detection (asphalt / kerbs / authentic FIA 4-wheel off-track gravel-grass)
   const absLat = Math.abs(proj.lateralOffset);
   car.onKerb =
     !car.inPitLane &&
@@ -393,30 +516,36 @@ export function stepCarPhysics(
     absLat <= halfWidth + 1.2 &&
     ((proj.lateralOffset < 0 && sample.hasLeftKerb) ||
       (proj.lateralOffset > 0 && sample.hasRightKerb));
-  car.offTrack = !car.inPitLane && absLat > halfWidth + 0.55;
+  car.wheelsOffTrack = car.inPitLane
+    ? 0
+    : countWheelsOffTrack(proj.lateralOffset, proj.headingError, halfWidth);
+  car.offTrack = !car.inPitLane && car.wheelsOffTrack === 4 && absLat > halfWidth + 1.15;
   if (car.offTrack) {
     car.dirtyTiresTimer = 2.0;
   }
 
-  // Track limit corner-cut check for player (cutting far inside a sharp corner at speed)
-  if (
+  // Authentic FIA 4-wheel track-limit check: only warn on sustained all-4-wheels high-speed inside corner cuts
+  const insideCutActive =
     car.isPlayer &&
     !car.inPitLane &&
     car.cornerCutCooldown <= 0 &&
-    absLat > halfWidth + 1.65 &&
-    car.speed > 26
-  ) {
-    // Inside cut if curvature and lateralOffset match
-    const cuttingInside =
-      (sample.curvature > 0.008 && proj.lateralOffset > halfWidth + 1.65) ||
-      (sample.curvature < -0.008 && proj.lateralOffset < -(halfWidth + 1.65));
-    if (cuttingInside) {
+    car.wheelsOffTrack === 4 &&
+    car.speed > 32 &&
+    ((sample.curvature > 0.012 && proj.lateralOffset > halfWidth + 2.0) ||
+      (sample.curvature < -0.012 && proj.lateralOffset < -(halfWidth + 2.0)));
+
+  if (insideCutActive) {
+    car.cornerCutHoldTimer += dt;
+    if (car.cornerCutHoldTimer >= 0.35) {
       car.trackLimitWarnings += 1;
-      car.cornerCutCooldown = 3.5;
-      if (car.trackLimitWarnings > 3) {
+      car.cornerCutHoldTimer = 0;
+      car.cornerCutCooldown = 6.0;
+      if (car.trackLimitWarnings > 3 && totalRaceLaps < 900) {
         car.penaltySeconds += 3;
       }
     }
+  } else {
+    car.cornerCutHoldTimer = Math.max(0, car.cornerCutHoldTimer - dt * 2.5);
   }
 
   // 2026 Active Aerodynamics (X-Mode straight vs Z-Mode corner)
@@ -600,7 +729,7 @@ export function stepCarPhysics(
   // Roadside / Off-track gravel & grass slowdown (velocity-proportional so car NEVER gets stuck at 0 km/h!)
   const trackHalfW = track.config.trackWidth * 0.5;
   const offTrackDepth = car.offTrack
-    ? Math.max(0, Math.abs(proj.lateralOffset) - (trackHalfW + 0.5))
+    ? Math.max(0.4, Math.abs(proj.lateralOffset) - (trackHalfW + 0.65))
     : 0;
   const baseOffTrackMult = car.offTrack
     ? Math.max(0.55, 0.78 - offTrackDepth * 0.05)
@@ -625,7 +754,8 @@ export function stepCarPhysics(
   const dirtyAirFactor = 1 - car.slipstreamStrength * 0.12;
   const downforceBonus =
     (1 - car.activeAeroOpen * 0.22) * dirtyAirFactor * (absSpeed * absSpeed) * 0.0038;
-  const absMult = assists.abs ? 1.0 : 0.93;
+  const effectiveAbs = assists.abs || car.basActive;
+  const absMult = effectiveAbs ? 1.0 : 0.93;
   const latLoadRatio = Math.min(
     1,
     Math.abs(car.yawRate * absSpeed) / Math.max(12, 26 * totalGrip),
@@ -679,7 +809,7 @@ export function stepCarPhysics(
     } else {
       // Full-lock heavy braking saturates front friction circle -> understeer
       const over = (effectiveBrake - 0.65) / 0.35;
-      const minLat = assists.abs ? 0.70 : 0.44;
+      const minLat = effectiveAbs ? 0.70 : 0.44;
       brakeLatMod = 1.0 - over * (1.0 - minLat);
     }
   }
@@ -687,7 +817,7 @@ export function stepCarPhysics(
   const brakeSlip =
     car.speed > 5
       ? effectiveBrake > 0.65
-        ? ((effectiveBrake - 0.65) / 0.35) * (assists.abs ? 0.26 : 0.88)
+        ? ((effectiveBrake - 0.65) / 0.35) * (effectiveAbs ? 0.26 : 0.88)
         : effectiveBrake * 0.14
       : 0;
   const latSlip = Math.min(1, Math.abs(car.lateralSpeed) / 9.5);

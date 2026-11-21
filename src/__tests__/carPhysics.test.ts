@@ -154,19 +154,39 @@ describe('CarPhysics — 2026 Active Aero, ERS, Tires & Handling', () => {
     car.speed = 40;
 
     let sawServicing = false;
+    let maxDistFromPitBoxDuringService = 0;
+    const expectedPitBox = monza.getPitBoxPose();
+
     for (let i = 0; i < 1800; i++) {
       stepCarPhysics(car, makeControl({ throttle: 1 }), monza, dt, [car], ASSISTS, 5, true);
       if (car.pitServicing) {
         sawServicing = true;
+        const dist = Math.hypot(
+          car.x - expectedPitBox.position.x,
+          car.z - expectedPitBox.position.z,
+        );
+        if (dist > maxDistFromPitBoxDuringService) {
+          maxDistFromPitBoxDuringService = dist;
+        }
       }
       if (car.pitStopsCount > 0) break;
     }
 
     expect(sawServicing).toBe(true);
+    expect(maxDistFromPitBoxDuringService).toBeLessThan(2.0);
     expect(car.pitStopsCount).toBe(1);
     expect(car.tireWear).toBeLessThan(0.05);
     expect(car.tireTemp).toBe(68);
     expect(car.tireCompound).toBe('medium');
+
+    // Verify getPitBoxPose lies cleanly inside pit window across all 4 circuits
+    for (const cfg of Object.values(CIRCUITS)) {
+      const sp = new TrackSpline(cfg);
+      const box = sp.getPitBoxPose();
+      expect(Number.isFinite(box.position.x)).toBe(true);
+      expect(Number.isFinite(box.position.z)).toBe(true);
+      expect(Math.abs(box.lateralOffset)).toBeGreaterThan(cfg.trackWidth * 0.5 + 4);
+    }
   });
 
   it('applies 3D slope gravity and updates car.pitch and car.roll on Red Bull Ring hills', () => {

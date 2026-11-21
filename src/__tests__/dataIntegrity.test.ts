@@ -13,6 +13,17 @@ import {
 
 const FLEX_TEAM_IDS: TeamId[] = ['mercedes', 'redbull', 'mclaren'];
 
+interface NodeFsSubset {
+  existsSync(path: URL): boolean;
+  readFileSync(path: URL): Uint8Array;
+  statSync(path: URL): { size: number };
+}
+
+const loadFs = async (): Promise<NodeFsSubset> => {
+  const modId = 'node:fs';
+  return (await import(/* @vite-ignore */ modId)) as NodeFsSubset;
+};
+
 describe('2026 F1 Data Integrity — Teams, Drivers, Circuits & Portrait Manifest', () => {
   it('defines all 6 teams with valid hex colors and realistic carPerf bounds', () => {
     const teamList = Object.values(TEAMS);
@@ -113,6 +124,59 @@ describe('2026 F1 Data Integrity — Teams, Drivers, Circuits & Portrait Manifes
     for (const rel of portraitPaths) {
       expect(rel.startsWith('./assets/drivers/')).toBe(true);
       expect(rel.endsWith('.png')).toBe(true);
+    }
+  });
+
+  it('stores all 20 valid PNG portraits on disk with unified team-suit file sizes (>=250KB) for multi-driver teams', async () => {
+    const fs = await loadFs();
+    const expectedFiles = [
+      'mariam-mercedes.png',
+      'mariam-redbull.png',
+      'mariam-mclaren.png',
+      'mariam-podium.png',
+      'mariam-victory.png',
+      'yahia-mercedes.png',
+      'yahia-redbull.png',
+      'yahia-mclaren.png',
+      'yahia-podium.png',
+      'yahia-victory.png',
+      'antonelli.png',
+      'russell.png',
+      'norris.png',
+      'piastri.png',
+      'verstappen.png',
+      'hadjar.png',
+      'hamilton.png',
+      'leclerc.png',
+      'lawson.png',
+      'gasly.png',
+    ];
+    const multiDriverTeamFiles = new Set([
+      'mariam-mercedes.png',
+      'mariam-redbull.png',
+      'mariam-mclaren.png',
+      'yahia-mercedes.png',
+      'yahia-redbull.png',
+      'yahia-mclaren.png',
+      'antonelli.png',
+      'russell.png',
+      'norris.png',
+      'piastri.png',
+      'verstappen.png',
+      'hadjar.png',
+      'hamilton.png',
+      'leclerc.png',
+    ]);
+
+    for (const file of expectedFiles) {
+      const fileUrl = new URL(`../../public/assets/drivers/${file}`, import.meta.url);
+      expect(fs.existsSync(fileUrl)).toBe(true);
+      const bytes = fs.readFileSync(fileUrl);
+      // Verify PNG magic signature 89 50 4E 47 0D 0A 1A 0A
+      expect([bytes[0], bytes[1], bytes[2], bytes[3]]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+      if (multiDriverTeamFiles.has(file)) {
+        expect(fs.statSync(fileUrl).size).toBeGreaterThanOrEqual(250_000);
+      }
     }
   });
 });

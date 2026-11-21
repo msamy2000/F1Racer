@@ -91,6 +91,8 @@ export class MenuUI {
   private tickerInterval: ReturnType<typeof setInterval> | null = null;
   private lastResults: RaceResultEntry[] = [];
   private lastChamp: ChampionshipState | null = null;
+  private lastPlayerLapTimesMs: number[] = [];
+  private lastWasTimeTrial = false;
   private activeChamp: ChampionshipState | null = loadChampionshipState();
   private podiumCinemaMode = false;
   private flexTeamByDriver: Record<string, TeamId> = {
@@ -140,9 +142,16 @@ export class MenuUI {
     this.root.classList.add('hidden');
   }
 
-  showResults(results: RaceResultEntry[], championship: ChampionshipState | null): void {
+  showResults(
+    results: RaceResultEntry[],
+    championship: ChampionshipState | null,
+    playerLapTimesMs: number[] = [],
+    isTimeTrial = false,
+  ): void {
     this.lastResults = results;
     this.lastChamp = championship;
+    this.lastPlayerLapTimesMs = [...playerLapTimesMs];
+    this.lastWasTimeTrial = isTimeTrial;
     this.activeChamp = loadChampionshipState();
     this.screen = 'results';
     this.show();
@@ -584,8 +593,8 @@ export class MenuUI {
               ${seg('steerAssist', 'false', 'Off', String(this.assists.steeringAssist !== false))}
             </div>
             <div class="seg-row" style="margin-bottom:6px;">
-              ${seg('brakeAssist', 'true', 'Brake Assist On', String(this.assists.brakingAssist !== false))}
-              ${seg('brakeAssist', 'false', 'Off', String(this.assists.brakingAssist !== false))}
+              ${seg('brakeAssist', 'true', 'BAS On', String(this.assists.brakingAssist !== false))}
+              ${seg('brakeAssist', 'false', 'BAS Off', String(this.assists.brakingAssist !== false))}
             </div>
             <div class="seg-row">
               ${seg('line', 'corners', 'Corners Line', this.assists.racingLine)}
@@ -612,6 +621,14 @@ export class MenuUI {
         const portrait = getDriverPortraitPath(entry.driver, this.yahiaTeamId, pose);
         const medal = entry.position === 1 ? '🏆 P1 WINNER' : entry.position === 2 ? '🥈 P2' : '🥉 P3';
         const stepClass = entry.position === 1 ? 'p1' : entry.position === 2 ? 'p2' : 'p3';
+        const raceTimeLabel =
+          entry.position === 1
+            ? formatLapTime(entry.totalTimeMs)
+            : `+${(entry.gapMs / 1000).toFixed(2)}s`;
+        const podiumPenHtml =
+          entry.penaltySeconds > 0
+            ? ` <span style="color:#ff4d4d;font-weight:800;">+${entry.penaltySeconds}s PEN</span>`
+            : '';
         return `
           <div class="podium-card ${stepClass}" style="border-top:4px solid ${team.primaryColor};">
             <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;color:${entry.position === 1 ? '#FFD700' : entry.position === 2 ? '#e2e8f0' : '#f59e0b'};margin-bottom:8px;">
@@ -621,6 +638,9 @@ export class MenuUI {
                  style="width:${entry.position === 1 ? 140 : 116}px;height:${entry.position === 1 ? 140 : 116}px;border-radius:14px;object-fit:cover;margin:0 auto 8px;display:block;border:3px solid ${entry.position === 1 ? '#FFD700' : team.primaryColor};box-shadow:0 8px 24px rgba(0,0,0,0.45);" />
             <div style="font-size:${entry.position === 1 ? 20 : 17}px;font-weight:700;">${entry.driver.flag} ${entry.driver.name}</div>
             <div style="font-size:12px;color:var(--text-muted);">${team.shortName} • +${entry.pointsAwarded} pts</div>
+            <div style="font-size:11px;font-family:var(--font-mono);color:#e2e8f0;margin-top:3px;">
+              ${raceTimeLabel} • Best ${formatLapTime(entry.bestLapMs)}${podiumPenHtml}
+            </div>
             <div class="podium-step-base ${stepClass}">${entry.position}</div>
           </div>
         `;
@@ -630,31 +650,80 @@ export class MenuUI {
     const playerRes = this.lastResults.find((r) => r.isPlayer);
     const winnerRes = this.lastResults[0];
     const gpName = CIRCUITS[this.circuitId].grandPrixName;
+    const heroSub = this.lastWasTimeTrial
+      ? '⏱️ TIME TRIAL LAP TIMES'
+      : 'Official FIA Grand Prix Classification';
     const heroHeadline =
-      playerRes && playerRes.position === 1
-        ? `🏆 ${playerRes.driver.name.toUpperCase()} WINS THE ${gpName.toUpperCase()}!`
-        : playerRes && playerRes.position <= 3
-          ? `🥂 PODIUM CELEBRATION! ${playerRes.driver.name.toUpperCase()} FINISHES P${playerRes.position}!`
-          : `🏁 ${winnerRes ? winnerRes.driver.name.toUpperCase() : 'RACE'} WINS THE ${gpName.toUpperCase()}`;
+      this.lastWasTimeTrial && playerRes
+        ? `⏱️ TIME TRIAL SESSION COMPLETE — BEST LAP ${formatLapTime(playerRes.bestLapMs)}`
+        : playerRes && playerRes.position === 1
+          ? `🏆 ${playerRes.driver.name.toUpperCase()} WINS THE ${gpName.toUpperCase()}!`
+          : playerRes && playerRes.position <= 3
+            ? `🥂 PODIUM CELEBRATION! ${playerRes.driver.name.toUpperCase()} FINISHES P${playerRes.position}!`
+            : `🏁 ${winnerRes ? winnerRes.driver.name.toUpperCase() : 'RACE'} WINS THE ${gpName.toUpperCase()}`;
+
+    let playerTimingHtml = '';
+    if (playerRes) {
+      const downgraded =
+        playerRes.penaltySeconds > 0 &&
+        Boolean(playerRes.onTrackPosition) &&
+        playerRes.position > playerRes.onTrackPosition!;
+      const lastLapMs =
+        this.lastPlayerLapTimesMs.length > 0
+          ? this.lastPlayerLapTimesMs[this.lastPlayerLapTimesMs.length - 1]
+          : 0;
+      const fastestChipMs =
+        this.lastPlayerLapTimesMs.length > 0 ? Math.min(...this.lastPlayerLapTimesMs) : 0;
+      const finishVal = this.lastWasTimeTrial
+        ? `${this.lastPlayerLapTimesMs.length} LAPS`
+        : `P${playerRes.position}${downgraded ? ` <span class="pen-drop">(P${playerRes.onTrackPosition} → P${playerRes.position})</span>` : ''}`;
+      const penText =
+        playerRes.penaltySeconds > 0
+          ? `<span class="pen-drop">+${playerRes.penaltySeconds}s${downgraded ? ` (P${playerRes.onTrackPosition}→P${playerRes.position})` : ''}</span>`
+          : 'Clean';
+      const chipsHtml =
+        this.lastPlayerLapTimesMs.length > 0
+          ? `<div class="lap-chips-row">${this.lastPlayerLapTimesMs
+              .map((ms, idx) => {
+                const isBest = ms === fastestChipMs;
+                return `<span class="lap-chip ${isBest ? 'is-best' : ''}">L${idx + 1} ${formatLapTime(ms)}</span>`;
+              })
+              .join('')}</div>`
+          : '';
+      playerTimingHtml = `
+        <div class="player-timing-summary">
+          <div class="timing-stats-grid">
+            <div class="timing-stat"><span>${this.lastWasTimeTrial ? 'SESSION' : 'FINISH'}</span><strong>${finishVal}</strong></div>
+            <div class="timing-stat"><span>TOTAL TIME</span><strong>${formatLapTime(playerRes.totalTimeMs)}</strong></div>
+            <div class="timing-stat"><span>BEST LAP</span><strong style="color:#e879f9;">${formatLapTime(playerRes.bestLapMs)}</strong></div>
+            <div class="timing-stat"><span>LAST LAP</span><strong>${formatLapTime(lastLapMs)}</strong></div>
+            <div class="timing-stat"><span>PENALTY</span><strong>${penText}</strong></div>
+          </div>
+          ${chipsHtml}
+        </div>
+      `;
+    }
 
     const rowsHtml = this.lastResults
       .map((r) => {
         const team = TEAMS[r.teamId];
+        const downgraded =
+          r.penaltySeconds > 0 && Boolean(r.onTrackPosition) && r.position > r.onTrackPosition!;
         const penBadge =
           r.penaltySeconds > 0
-            ? `<span style="color:#ff4d4d;font-weight:800;">+${r.penaltySeconds}s</span>`
+            ? `<span style="color:#ff4d4d;font-weight:800;">+${r.penaltySeconds}s${downgraded ? ` (P${r.onTrackPosition}→P${r.position})` : ''}</span>`
             : `<span style="color:var(--text-muted);">—</span>`;
         return `
           <tr style="${r.isPlayer ? 'background:rgba(225,6,0,0.18);font-weight:700;' : ''}">
             <td>P${r.position}</td>
             <td><span style="display:inline-block;width:4px;height:12px;background:${team.primaryColor};margin-right:6px;"></span>${r.driver.flag} ${r.driver.name}</td>
-            <td>${team.shortName}</td>
+            <td class="col-constructor">${team.shortName}</td>
             <td style="font-family:var(--font-mono);">${r.position === 1 ? formatLapTime(r.totalTimeMs) : `+${(r.gapMs / 1000).toFixed(2)}s`}</td>
             <td style="font-family:var(--font-mono);${r.fastestLapBonus ? 'color:#e879f9;font-weight:700;' : ''}">
               ${formatLapTime(r.bestLapMs)} ${r.fastestLapBonus ? '⚡' : ''}
             </td>
             <td style="font-family:var(--font-mono);">${penBadge}</td>
-            <td>${r.pitStops}</td>
+            <td class="col-pits">${r.pitStops}</td>
             <td><strong>${r.pointsAwarded}</strong></td>
           </tr>
         `;
@@ -721,7 +790,7 @@ export class MenuUI {
         <div class="podium-hero-banner" style="margin-bottom:12px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <div>
-              <div class="brand-sub" style="color:#FFD700;">Official FIA Grand Prix Classification</div>
+              <div class="brand-sub" style="color:#FFD700;">${heroSub}</div>
               <div class="podium-hero-title">${heroHeadline}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -731,14 +800,17 @@ export class MenuUI {
             </div>
           </div>
         </div>
+        ${playerTimingHtml}
         <div class="podium-cards">${podiumCards}</div>
         ${champSection}
-        <table class="results-table">
-          <thead>
-            <tr><th>Pos</th><th>Driver</th><th>Constructor</th><th>Time / Gap</th><th>Best Lap</th><th>Pen</th><th>Pits</th><th>Pts</th></tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
+        <div class="results-table-wrap">
+          <table class="results-table">
+            <thead>
+              <tr><th>Pos</th><th>Driver</th><th class="col-constructor">Constructor</th><th>Time / Gap</th><th>Best Lap</th><th>Pen</th><th class="col-pits">Pits</th><th>Pts</th></tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
       </div>
     `;
   }

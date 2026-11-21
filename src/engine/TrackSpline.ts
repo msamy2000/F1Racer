@@ -37,6 +37,13 @@ export interface TrackProjection {
   sample: TrackSample;
 }
 
+export interface PitBoxPose {
+  s: number;
+  position: THREE.Vector3;
+  heading: number;
+  lateralOffset: number;
+}
+
 export const SAMPLE_COUNT = 720;
 
 export function isSInZone(s: number, startS: number, endS: number): boolean {
@@ -373,6 +380,21 @@ export class TrackSpline {
       headingError,
       sample,
     };
+  }
+
+  /**
+   * Returns the canonical pit-box world pose (shared between 3D pit crew visuals and physics stop logic).
+   */
+  getPitBoxPose(): PitBoxPose {
+    const entry = this.config.pitEntryS;
+    const exit = this.config.pitExitS;
+    const span = entry <= exit ? exit - entry : 1 - entry + exit;
+    const s = (entry + span * 0.5) % 1;
+    const smp = this.sampleAtS(s);
+    const lateralOffset = this.getPitLaneLateralOffset(s);
+    const position = smp.position.clone().addScaledVector(smp.right, lateralOffset);
+    const heading = Math.atan2(smp.tangent.x, smp.tangent.z);
+    return { s, position, heading, lateralOffset };
   }
 
   /**

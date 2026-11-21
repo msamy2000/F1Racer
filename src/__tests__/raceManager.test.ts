@@ -14,6 +14,7 @@ import {
   scoreChampionshipRound,
   type RaceResultEntry,
   type RaceSettings,
+  type SessionPhase,
 } from '../engine/RaceManager';
 import { CameraRig } from '../rendering/CameraRig';
 
@@ -484,5 +485,98 @@ describe('RaceManager, 2026 Roster & Championship Scoring', () => {
     expect(rivalRes.totalTimeMs).toBe(72_000);
     expect(rivalRes.position).toBeLessThan(playerRes.position);
     expect(playerRes.gapMs).toBe(4_000);
+  });
+
+  it('downgrades player crossing P1 with +3s penalty behind close unfinished AI rival and updates getHUDRows immediately', () => {
+    const race = new RaceManager({ ...BASE_SETTINGS, circuitId: 'monza', laps: 1 });
+    race.phase = 'racing';
+    const player = race.getPlayerCar();
+    const aiCars = race.cars.filter((c) => !c.isPlayer);
+    const rival = aiCars[0];
+
+    // Place player just before start/finish on lap 1 with a +3s penalty
+    const sStart = race.track.sampleAtS(0.996);
+    player.lap = 1;
+    player.s = 0.996;
+    player.prevS = 0.994;
+    player.sampleIndex = sStart.index;
+    player.x = sStart.position.x;
+    player.y = sStart.position.y;
+    player.z = sStart.position.z;
+    player.heading = Math.atan2(sStart.tangent.x, sStart.tangent.z);
+    player.speed = 82;
+    player.penaltySeconds = 3;
+    player.totalProgress = 0.996;
+
+    // Place closest rival ~95m behind (~1.4s at Monza circuit pace), even if momentarily slowed to 35 m/s in Parabolica exit
+    const rivalS = 1 - 95 / race.track.totalLength;
+    const sRival = race.track.sampleAtS(rivalS);
+    rival.lap = 1;
+    rival.s = rivalS;
+    rival.prevS = rivalS - 0.002;
+    rival.sampleIndex = sRival.index;
+    rival.x = sRival.position.x;
+    rival.y = sRival.position.y;
+    rival.z = sRival.position.z;
+    rival.heading = Math.atan2(sRival.tangent.x, sRival.tangent.z);
+    rival.speed = 35;
+    rival.penaltySeconds = 0;
+    rival.totalProgress = rivalS;
+
+    // Put remaining AI cars further back
+    for (let i = 1; i < aiCars.length; i++) {
+      const backS = 0.72 - i * 0.02;
+      const sb = race.track.sampleAtS(backS);
+      aiCars[i].lap = 1;
+      aiCars[i].s = backS;
+      aiCars[i].prevS = backS - 0.002;
+      aiCars[i].sampleIndex = sb.index;
+      aiCars[i].x = sb.position.x;
+      aiCars[i].y = sb.position.y;
+      aiCars[i].z = sb.position.z;
+      aiCars[i].heading = Math.atan2(sb.tangent.x, sb.tangent.z);
+      aiCars[i].totalProgress = backS;
+    }
+
+    const dt = 1 / 60;
+    for (let i = 0; i < 90; i++) {
+      race.step(
+        {
+          throttle: 1,
+          brake: 0,
+          steer: 0,
+          boost: false,
+          shiftUpPressed: false,
+          shiftDownPressed: false,
+          cameraPressed: false,
+          pitPressed: false,
+          resetPressed: false,
+          pausePressed: false,
+        },
+        dt,
+      );
+      if ((race.phase as SessionPhase) === 'finished') break;
+    }
+
+    expect(race.phase).toBe('finished');
+    expect(player.finishTimeMs).toBeGreaterThan(0);
+
+    const playerRes = race.results.find((r) => r.driver.id === player.driverId)!;
+    const rivalRes = race.results.find((r) => r.driver.id === rival.driverId)!;
+
+    expect(playerRes.onTrackPosition).toBe(1);
+    expect(playerRes.penaltySeconds).toBe(3);
+    expect(playerRes.totalTimeMs).toBeCloseTo(player.finishTimeMs + 3000, 1);
+    expect(rivalRes.position).toBe(1);
+    expect(playerRes.position).toBe(2);
+    expect(rivalRes.pointsAwarded).toBeGreaterThanOrEqual(25);
+    expect(playerRes.pointsAwarded).toBeLessThanOrEqual(19);
+
+    // HUD rows must immediately reflect the official penalized classification when finished
+    const hudRows = race.getHUDRows();
+    expect(hudRows[0].driver.id).toBe(rival.driverId);
+    expect(hudRows[0].position).toBe(1);
+    expect(hudRows[1].driver.id).toBe(player.driverId);
+    expect(hudRows[1].position).toBe(2);
   });
 });
