@@ -518,10 +518,10 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
   const groundColor = isVegas
     ? '#0A0D16'
     : cfg.atmosphere === 'golden-park'
-      ? '#6E7F54'
+      ? '#52623D'
       : cfg.atmosphere === 'alpine-day'
-        ? '#5E8550'
-        : '#647C56';
+        ? '#486A3D'
+        : '#4D6242';
 
   const grassPbr = !isVegas && pbrBundle?.grass ? clonePBRSetWithRepeat(pbrBundle.grass, 140, 140) : null;
   if (grassPbr) {
@@ -553,14 +553,14 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
   if (asphaltPbr) {
     textures.push(asphaltPbr.map, asphaltPbr.normalMap, asphaltPbr.roughnessMap);
     asphaltMat = new THREE.MeshStandardMaterial({
-      color: isVegas ? '#687082' : '#7B828E',
+      color: isVegas ? '#5A6272' : '#616874',
       map: asphaltPbr.map,
       normalMap: asphaltPbr.normalMap,
       normalScale: new THREE.Vector2(0.65, 0.65),
       roughnessMap: asphaltPbr.roughnessMap,
       roughness: 0.88,
       metalness: 0.06,
-      envMapIntensity: 0.9,
+      envMapIntensity: 0.55,
     });
   } else {
     const asphaltTextures = createAsphaltTextures();

@@ -319,7 +319,7 @@ function buildGlbF1CarMesh(
       roughness: team.id === 'redbull' ? 0.28 : 0.16,
       clearcoat: 1.0,
       clearcoatRoughness: 0.06,
-      envMapIntensity: 1.5,
+      envMapIntensity: 1.05,
     }),
   );
 
@@ -330,7 +330,7 @@ function buildGlbF1CarMesh(
       roughness: 0.20,
       clearcoat: 0.95,
       clearcoatRoughness: 0.08,
-      envMapIntensity: 1.4,
+      envMapIntensity: 1.0,
     }),
   );
 
@@ -341,7 +341,7 @@ function buildGlbF1CarMesh(
       roughness: 0.18,
       clearcoat: 0.9,
       clearcoatRoughness: 0.08,
-      envMapIntensity: 1.35,
+      envMapIntensity: 0.95,
     }),
   );
 
@@ -353,7 +353,7 @@ function buildGlbF1CarMesh(
       roughness: 0.36,
       clearcoat: 0.45,
       clearcoatRoughness: 0.22,
-      envMapIntensity: 1.1,
+      envMapIntensity: 0.85,
     }),
   );
 
@@ -362,7 +362,7 @@ function buildGlbF1CarMesh(
       color: '#8e98a8',
       metalness: 0.92,
       roughness: 0.22,
-      envMapIntensity: 1.5,
+      envMapIntensity: 1.15,
     }),
   );
 
@@ -371,7 +371,7 @@ function buildGlbF1CarMesh(
       color: '#1b1f27',
       metalness: 0.65,
       roughness: 0.28,
-      envMapIntensity: 1.25,
+      envMapIntensity: 0.95,
     }),
   );
 

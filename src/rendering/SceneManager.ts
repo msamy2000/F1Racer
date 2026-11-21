@@ -11,6 +11,58 @@ import { buildF1CarMesh, type CarMeshRig } from './CarMeshBuilder';
 
 type EnvKey = AtmospherePreset | 'showroom';
 
+export const HDRI_FILES: Record<EnvKey, string> = {
+  'alpine-day': 'alpine-day.hdr',
+  'golden-park': 'golden-park.hdr',
+  'british-day': 'british-overcast.hdr',
+  'vegas-night': 'vegas-night.hdr',
+  showroom: 'showroom.hdr',
+};
+
+export function resolveHdriFilename(key: EnvKey): string {
+  return HDRI_FILES[key];
+}
+
+/**
+ * Compresses extreme HDR sun/specular spikes via a hue-preserving soft-knee shoulder
+ * so HDRI skyboxes do not trigger full-screen UnrealBloom glare before tone mapping.
+ */
+export function compressHdrTextureRadiance(tex: THREE.DataTexture, maxChannel = 2.0): void {
+  const data = tex.image?.data as Uint16Array | Float32Array | undefined;
+  if (!data || data.length < 4) return;
+
+  const knee = maxChannel * 0.45;
+  const head = Math.max(0.001, maxChannel - knee);
+  const isHalfFloat = data instanceof Uint16Array;
+
+  const compressPixel = (r: number, g: number, b: number): [number, number, number] | null => {
+    const peak = Math.max(r, g, b);
+    if (!Number.isFinite(peak) || peak <= knee) return null;
+    const excess = peak - knee;
+    const compressed = knee + head * (excess / (excess + head));
+    const scale = compressed / peak;
+    return [r * scale, g * scale, b * scale];
+  };
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = isHalfFloat ? THREE.DataUtils.fromHalfFloat(data[i]) : data[i];
+    const g = isHalfFloat ? THREE.DataUtils.fromHalfFloat(data[i + 1]) : data[i + 1];
+    const b = isHalfFloat ? THREE.DataUtils.fromHalfFloat(data[i + 2]) : data[i + 2];
+    const next = compressPixel(r, g, b);
+    if (!next) continue;
+    if (isHalfFloat) {
+      data[i] = THREE.DataUtils.toHalfFloat(next[0]);
+      data[i + 1] = THREE.DataUtils.toHalfFloat(next[1]);
+      data[i + 2] = THREE.DataUtils.toHalfFloat(next[2]);
+    } else {
+      data[i] = next[0];
+      data[i + 1] = next[1];
+      data[i + 2] = next[2];
+    }
+  }
+  tex.needsUpdate = true;
+}
+
 interface CachedHdri {
   bgTex: THREE.DataTexture;
   envRt: THREE.WebGLRenderTarget;
@@ -98,7 +150,7 @@ export class SceneManager {
 
     // Post-processing pipeline: Render -> subtle UnrealBloom -> ACES OutputPass
     this.composer = new EffectComposer(this.renderer);
-    this.composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDpr));
     this.composer.setSize(initW, initH);
     const renderPass = new RenderPass(this.scene, this.cameraRig.camera);
     this.bloomPass = new UnrealBloomPass(
@@ -117,24 +169,24 @@ export class SceneManager {
     this.scene.environment = cached.envRt.texture;
     if (key === 'showroom') {
       this.scene.background = new THREE.Color('#090B12');
-      this.scene.environmentIntensity = 1.25;
+      this.scene.environmentIntensity = 0.95;
     } else if (key === 'vegas-night') {
       this.scene.background = cached.bgTex;
-      this.scene.backgroundIntensity = 0.35;
-      this.scene.environmentIntensity = 0.72;
+      this.scene.backgroundIntensity = 0.30;
+      this.scene.environmentIntensity = 0.62;
     } else if (key === 'golden-park') {
       this.scene.background = cached.bgTex;
-      this.scene.backgroundIntensity = 1.05;
-      this.scene.environmentIntensity = 1.05;
+      this.scene.backgroundIntensity = 0.58;
+      this.scene.environmentIntensity = 0.56;
     } else if (key === 'alpine-day') {
       this.scene.background = cached.bgTex;
-      this.scene.backgroundIntensity = 1.0;
-      this.scene.environmentIntensity = 1.0;
+      this.scene.backgroundIntensity = 0.62;
+      this.scene.environmentIntensity = 0.58;
     } else {
-      // british-overcast
+      // british-day
       this.scene.background = cached.bgTex;
-      this.scene.backgroundIntensity = 0.92;
-      this.scene.environmentIntensity = 0.95;
+      this.scene.backgroundIntensity = 0.60;
+      this.scene.environmentIntensity = 0.58;
     }
   }
 
@@ -154,9 +206,10 @@ export class SceneManager {
     this.hdriLoading.add(key);
 
     this.rgbeLoader.load(
-      `./assets/hdri/${key}.hdr`,
+      `./assets/hdri/${resolveHdriFilename(key)}`,
       (hdrTex) => {
         this.hdriLoading.delete(key);
+        compressHdrTextureRadiance(hdrTex, key === 'showroom' ? 2.8 : 2.0);
         hdrTex.mapping = THREE.EquirectangularReflectionMapping;
         const envRt = this.pmremGenerator.fromEquirectangular(hdrTex);
         const entry: CachedHdri = { bgTex: hdrTex, envRt };
@@ -218,7 +271,7 @@ export class SceneManager {
     }
     this.fallbackEnvRt = nextRt;
     this.scene.environment = nextRt.texture;
-    this.scene.environmentIntensity = key === 'showroom' ? 1.15 : 0.9;
+    this.scene.environmentIntensity = key === 'showroom' ? 0.95 : 0.58;
   }
 
   resize(width: number, height: number): void {
@@ -248,46 +301,50 @@ export class SceneManager {
       this.scene.fog = new THREE.FogExp2('#080C1C', 0.00105);
       this.hemiLight.color.set('#7DA2FF');
       this.hemiLight.groundColor.set('#141826');
-      this.hemiLight.intensity = 0.85;
+      this.hemiLight.intensity = 0.65;
       this.sunLight.color.set('#D8E6FF');
-      this.sunLight.intensity = 1.65;
-      this.renderer.toneMappingExposure = 1.16;
-      this.bloomPass.strength = 0.42;
-      this.bloomPass.threshold = 0.85;
-    } else if (preset === 'golden-park') {
-      this.scene.background = new THREE.Color('#D9A26D');
-      this.scene.fog = new THREE.FogExp2('#D8A87E', 0.00055);
-      this.hemiLight.color.set('#FFE6C4');
-      this.hemiLight.groundColor.set('#2B3D20');
-      this.hemiLight.intensity = 0.75;
-      this.sunLight.color.set('#FFC988');
-      this.sunLight.intensity = 2.65;
-      this.renderer.toneMappingExposure = 1.04;
-      this.bloomPass.strength = 0.28;
-      this.bloomPass.threshold = 0.94;
-    } else if (preset === 'alpine-day') {
-      this.scene.background = new THREE.Color('#6FAFE8');
-      this.scene.fog = new THREE.FogExp2('#A4CBE8', 0.00048);
-      this.hemiLight.color.set('#E8F4FF');
-      this.hemiLight.groundColor.set('#294225');
-      this.hemiLight.intensity = 0.72;
-      this.sunLight.color.set('#FFF9EC');
-      this.sunLight.intensity = 2.6;
+      this.sunLight.intensity = 1.35;
       this.renderer.toneMappingExposure = 1.02;
-      this.bloomPass.strength = 0.22;
-      this.bloomPass.threshold = 0.96;
+      this.bloomPass.strength = 0.28;
+      this.bloomPass.radius = 0.35;
+      this.bloomPass.threshold = 1.15;
+    } else if (preset === 'golden-park') {
+      this.scene.background = new THREE.Color('#B88456');
+      this.scene.fog = new THREE.FogExp2('#9E7F64', 0.00028);
+      this.hemiLight.color.set('#E6CEB0');
+      this.hemiLight.groundColor.set('#1D2915');
+      this.hemiLight.intensity = 0.42;
+      this.sunLight.color.set('#FFD4A3');
+      this.sunLight.intensity = 1.55;
+      this.renderer.toneMappingExposure = 0.80;
+      this.bloomPass.strength = 0.10;
+      this.bloomPass.radius = 0.25;
+      this.bloomPass.threshold = 1.65;
+    } else if (preset === 'alpine-day') {
+      this.scene.background = new THREE.Color('#4F8CC8');
+      this.scene.fog = new THREE.FogExp2('#719AC2', 0.00025);
+      this.hemiLight.color.set('#CBE2FA');
+      this.hemiLight.groundColor.set('#1E311B');
+      this.hemiLight.intensity = 0.44;
+      this.sunLight.color.set('#FFF5E4');
+      this.sunLight.intensity = 1.60;
+      this.renderer.toneMappingExposure = 0.82;
+      this.bloomPass.strength = 0.10;
+      this.bloomPass.radius = 0.25;
+      this.bloomPass.threshold = 1.65;
     } else {
       // British day (Silverstone)
-      this.scene.background = new THREE.Color('#8FB5D8');
-      this.scene.fog = new THREE.FogExp2('#B4C6D8', 0.00058);
-      this.hemiLight.color.set('#EEF6FF');
-      this.hemiLight.groundColor.set('#2B3B28');
-      this.hemiLight.intensity = 0.82;
-      this.sunLight.color.set('#FFF8EB');
-      this.sunLight.intensity = 2.15;
-      this.renderer.toneMappingExposure = 1.04;
-      this.bloomPass.strength = 0.22;
-      this.bloomPass.threshold = 0.96;
+      this.scene.background = new THREE.Color('#6D8FAD');
+      this.scene.fog = new THREE.FogExp2('#7B8FA3', 0.00032);
+      this.hemiLight.color.set('#CDDCEB');
+      this.hemiLight.groundColor.set('#1E2C1C');
+      this.hemiLight.intensity = 0.48;
+      this.sunLight.color.set('#F4EFE2');
+      this.sunLight.intensity = 1.38;
+      this.renderer.toneMappingExposure = 0.82;
+      this.bloomPass.strength = 0.10;
+      this.bloomPass.radius = 0.25;
+      this.bloomPass.threshold = 1.65;
     }
 
     this.updateEnvironmentMap(preset);
@@ -303,15 +360,15 @@ export class SceneManager {
     this.scene.fog = new THREE.FogExp2('#090B12', 0.024);
     this.hemiLight.color.set('#DCEBFF');
     this.hemiLight.groundColor.set('#181E2B');
-    this.hemiLight.intensity = 1.1;
+    this.hemiLight.intensity = 0.85;
     this.sunLight.color.set('#FFFFFF');
     this.sunLight.position.set(12, 18, 10);
     this.sunLight.target.position.set(0, 0.5, 0);
     this.sunLight.target.updateMatrixWorld();
-    this.sunLight.intensity = 2.8;
-    this.renderer.toneMappingExposure = 1.14;
-    this.bloomPass.strength = 0.32;
-    this.bloomPass.threshold = 0.92;
+    this.sunLight.intensity = 2.1;
+    this.renderer.toneMappingExposure = 0.98;
+    this.bloomPass.strength = 0.18;
+    this.bloomPass.threshold = 1.25;
 
     this.updateEnvironmentMap('showroom');
 
@@ -447,15 +504,15 @@ export class SceneManager {
     this.scene.fog = new THREE.FogExp2('#070A14', 0.016);
     this.hemiLight.color.set('#EBF4FF');
     this.hemiLight.groundColor.set('#181E2E');
-    this.hemiLight.intensity = 1.15;
+    this.hemiLight.intensity = 0.85;
     this.sunLight.color.set('#FFF6E0');
     this.sunLight.position.set(10, 20, 14);
     this.sunLight.target.position.set(0, 1.2, 0);
     this.sunLight.target.updateMatrixWorld();
-    this.sunLight.intensity = 3.1;
-    this.renderer.toneMappingExposure = 1.18;
-    this.bloomPass.strength = 0.42;
-    this.bloomPass.threshold = 0.86;
+    this.sunLight.intensity = 2.3;
+    this.renderer.toneMappingExposure = 1.00;
+    this.bloomPass.strength = 0.24;
+    this.bloomPass.threshold = 1.15;
     this.updateEnvironmentMap('showroom');
 
     const grp = new THREE.Group();

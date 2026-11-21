@@ -47,74 +47,111 @@ export class F1AudioEngine {
   // Looping Google Flow Music menu soundtrack (plays across Main Menu, Driver Select & Setup until race starts)
   private menuAudio: HTMLAudioElement | null = null;
   private menuMusicWanted = false;
-  private menuFadeTimer: number | null = null;
+  private menuFadeTimer: ReturnType<typeof setInterval> | null = null;
 
   muted = false;
   private initialized = false;
   private active = false;
 
+  private clearMenuFade(): void {
+    if (this.menuFadeTimer !== null) {
+      globalThis.clearInterval(this.menuFadeTimer);
+      this.menuFadeTimer = null;
+    }
+  }
+
+  private pauseMenuElement(): void {
+    this.clearMenuFade();
+    const el = this.menuAudio;
+    if (!el) return;
+    el.muted = true;
+    try {
+      el.volume = 0;
+    } catch {
+      // Ignore read-only volume on mobile browsers (e.g. iOS Safari)
+    }
+    el.pause();
+  }
+
   private ensureMenuAudio(): HTMLAudioElement | null {
     if (this.menuAudio) return this.menuAudio;
-    if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
+    if (typeof Audio === 'undefined') return null;
     const el = new Audio('./assets/audio/menu-theme.mp3');
     el.loop = true;
     el.preload = 'auto';
-    el.volume = 0;
+    try {
+      el.volume = 0;
+    } catch {
+      // Ignore read-only volume
+    }
+    el.addEventListener?.('playing', () => {
+      if (!this.menuMusicWanted || this.muted) {
+        this.pauseMenuElement();
+      }
+    });
     this.menuAudio = el;
     return el;
   }
 
-  private fadeMenuAudioTo(targetVol: number, pauseAtZero: boolean): void {
+  private fadeMenuAudioIn(targetVol: number): void {
     const el = this.menuAudio;
     if (!el) return;
-    if (this.menuFadeTimer !== null) {
-      window.clearInterval(this.menuFadeTimer);
-      this.menuFadeTimer = null;
-    }
-    const stepMs = 30;
-    const delta = 0.045;
-    this.menuFadeTimer = window.setInterval(() => {
-      if (!this.menuAudio) return;
-      const cur = this.menuAudio.volume;
-      if (Math.abs(targetVol - cur) <= delta) {
-        this.menuAudio.volume = targetVol;
-        if (pauseAtZero && targetVol <= 0.001) {
-          this.menuAudio.pause();
-        }
-        if (this.menuFadeTimer !== null) {
-          window.clearInterval(this.menuFadeTimer);
-          this.menuFadeTimer = null;
-        }
-      } else {
-        this.menuAudio.volume = Math.max(
-          0,
-          Math.min(1, cur + Math.sign(targetVol - cur) * delta),
-        );
+    this.clearMenuFade();
+    const totalSteps = 8;
+    let step = 0;
+    this.menuFadeTimer = globalThis.setInterval(() => {
+      if (!this.menuMusicWanted || this.muted) {
+        this.pauseMenuElement();
+        return;
       }
-    }, stepMs);
+      step += 1;
+      const t = Math.min(1, step / totalSteps);
+      try {
+        el.volume = targetVol * t;
+      } catch {
+        // Ignore read-only volume on mobile browsers
+      }
+      if (step >= totalSteps) {
+        this.clearMenuFade();
+      }
+    }, 30);
   }
 
-  /** Play or smoothly fade out the looping menu soundtrack across all menu screens. */
+  /** Play or immediately stop the looping menu soundtrack across all menu screens. */
   setMenuMusicActive(active: boolean): void {
     this.menuMusicWanted = active;
+    if (!active || this.muted) {
+      this.pauseMenuElement();
+      return;
+    }
+
     const el = this.ensureMenuAudio();
     if (!el) return;
-
-    if (active && !this.muted) {
-      const p = el.play();
-      if (p && typeof p.then === 'function') {
-        p.then(() => {
-          if (this.menuMusicWanted && !this.muted) {
-            this.fadeMenuAudioTo(0.36, false);
-          }
-        }).catch(() => {
-          // Browser autoplay policy blocked before first user gesture; unlock() will start it immediately.
-        });
-      } else {
-        this.fadeMenuAudioTo(0.36, false);
+    this.clearMenuFade();
+    el.muted = false;
+    if (el.paused) {
+      try {
+        el.volume = 0;
+      } catch {
+        // Ignore read-only volume
       }
+    }
+
+    const p = el.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        if (!this.menuMusicWanted || this.muted) {
+          this.pauseMenuElement();
+        } else {
+          this.fadeMenuAudioIn(0.36);
+        }
+      }).catch(() => {
+        // Browser autoplay policy blocked before first user gesture; unlock() will start it when menuMusicWanted is still true.
+      });
+    } else if (this.menuMusicWanted && !this.muted) {
+      this.fadeMenuAudioIn(0.36);
     } else {
-      this.fadeMenuAudioTo(0, true);
+      this.pauseMenuElement();
     }
   }
 
@@ -161,6 +198,8 @@ export class F1AudioEngine {
       }
       return;
     }
+
+    if (typeof window === 'undefined') return;
 
     const AudioCtx =
       window.AudioContext ||
@@ -289,7 +328,7 @@ export class F1AudioEngine {
     }
     if (this.menuAudio) {
       if (muted) {
-        this.fadeMenuAudioTo(0, true);
+        this.pauseMenuElement();
       } else if (this.menuMusicWanted) {
         this.setMenuMusicActive(true);
       }
@@ -298,6 +337,9 @@ export class F1AudioEngine {
 
   setEngineActive(active: boolean): void {
     this.active = active;
+    if (active) {
+      this.setMenuMusicActive(false);
+    }
     if (this.engineGain && this.ctx) {
       this.engineGain.gain.setTargetAtTime(active ? 1 : 0, this.ctx.currentTime, 0.08);
     }

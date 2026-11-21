@@ -44,6 +44,7 @@ const audio = new F1AudioEngine();
 void audio.preloadRawSamples();
 
 let activeRace: RaceManager | null = null;
+let startingSession = false;
 let activeChamp: ChampionshipState | null = null;
 let activeTrackWorld: BuiltTrackWorld | null = null;
 let activeEffects: EffectsManager | null = null;
@@ -91,48 +92,53 @@ function cleanupActiveSession(): void {
 const assetsReadyPromise = Promise.all([preloadF1CarModel(), preloadTrackTextures()]);
 
 async function startSession(settings: RaceSettings, champ: ChampionshipState | null): Promise<void> {
-  audio.unlock();
+  startingSession = true;
   audio.setMenuMusicActive(false);
-  await assetsReadyPromise;
-  cleanupActiveSession();
-  accumulator = 0;
-  lastRaceSettings = { ...settings, assists: { ...settings.assists } };
-  activeChamp = champ;
+  audio.unlock();
+  try {
+    await assetsReadyPromise;
+    cleanupActiveSession();
+    accumulator = 0;
+    lastRaceSettings = { ...settings, assists: { ...settings.assists } };
+    activeChamp = champ;
 
-  const race = new RaceManager(settings);
-  activeRace = race;
+    const race = new RaceManager(settings);
+    activeRace = race;
 
-  const world = buildTrackWorld(race.track);
-  activeTrackWorld = world;
-  sceneManager.applyAtmosphere(race.track.config.atmosphere);
-  sceneManager.setRaceWorldGroup(world.group);
+    const world = buildTrackWorld(race.track);
+    activeTrackWorld = world;
+    sceneManager.applyAtmosphere(race.track.config.atmosphere);
+    sceneManager.setRaceWorldGroup(world.group);
 
-  activeEffects = new EffectsManager();
-  world.group.add(activeEffects.group);
+    activeEffects = new EffectsManager();
+    world.group.add(activeEffects.group);
 
-  for (const car of race.cars) {
-    const driver = race.driversById.get(car.driverId)!;
-    const rig = buildF1CarMesh(driver, settings.yahiaTeamId, car.tireCompound);
-    world.group.add(rig.root);
-    activeCarRigs.set(car.driverId, rig);
-    rig.updateFromState(car, 0);
+    for (const car of race.cars) {
+      const driver = race.driversById.get(car.driverId)!;
+      const rig = buildF1CarMesh(driver, settings.yahiaTeamId, car.tireCompound);
+      world.group.add(rig.root);
+      activeCarRigs.set(car.driverId, rig);
+      rig.updateFromState(car, 0);
+    }
+
+    const playerRig = activeCarRigs.get(race.getPlayerCar().driverId);
+    playerRig?.setCockpitView(
+      race.phase !== 'countdown' && sceneManager.cameraRig.mode === 'cockpit',
+    );
+
+    if (settings.mode === 'time-trial') {
+      ghostCarMesh = buildGhostCarMesh();
+      ghostCarMesh.visible = false;
+      world.group.add(ghostCarMesh);
+    }
+
+    input.resetContinuous();
+    audio.setEngineActive(true);
+    menuUI.hide();
+    hud.show(race, sceneManager.cameraRig.mode, audio.muted);
+  } finally {
+    startingSession = false;
   }
-
-  const playerRig = activeCarRigs.get(race.getPlayerCar().driverId);
-  playerRig?.setCockpitView(
-    race.phase !== 'countdown' && sceneManager.cameraRig.mode === 'cockpit',
-  );
-
-  if (settings.mode === 'time-trial') {
-    ghostCarMesh = buildGhostCarMesh();
-    ghostCarMesh.visible = false;
-    world.group.add(ghostCarMesh);
-  }
-
-  input.resetContinuous();
-  audio.setEngineActive(true);
-  menuUI.hide();
-  hud.show(race, sceneManager.cameraRig.mode, audio.muted);
 }
 
 function returnToMenu(driverId: string, yahiaTeamId: TeamId): void {
@@ -147,11 +153,10 @@ function returnToMenu(driverId: string, yahiaTeamId: TeamId): void {
 
 const menuUI = new MenuUI(menuLayer, {
   onShowroomChanged(driverId, yahiaTeamId) {
+    if (activeRace || startingSession) return;
     const drv = ALL_DRIVERS.find((d) => d.id === driverId) ?? YAHIA_DRIVER;
     sceneManager.enterMenuShowroom(drv, yahiaTeamId);
-    if (!activeRace) {
-      audio.setMenuMusicActive(true);
-    }
+    audio.setMenuMusicActive(true);
   },
   onStartSession(settings, champ) {
     startSession(settings, champ);
@@ -249,7 +254,7 @@ menuUI.show();
 audio.setMenuMusicActive(true);
 
 void preloadF1CarModel().then(() => {
-  if (!activeRace) {
+  if (!activeRace && !startingSession) {
     const drv = ALL_DRIVERS.find((d) => d.id === menuUI.playerDriverId) ?? YAHIA_DRIVER;
     sceneManager.enterMenuShowroom(drv, menuUI.yahiaTeamId);
   }

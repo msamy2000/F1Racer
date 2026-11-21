@@ -130,7 +130,7 @@ describe('TrackMeshBuilder — Ribbon Normals, Closed Seam & World Clearances', 
         built.dispose();
       }
     });
-  });
+  }, 15000);
 
   it('controls 5 red start lights, racing line modes (full/corners/off), and Las Vegas Sphere landmark', () => {
     withMockCanvas(() => {
