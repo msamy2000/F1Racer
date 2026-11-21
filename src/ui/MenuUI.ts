@@ -80,9 +80,11 @@ export class MenuUI {
   qualifyingEnabled = false;
   assists: AssistConfig = {
     gearbox: 'auto',
-    tractionControl: 'medium',
+    tractionControl: 'full',
     abs: true,
-    racingLine: 'corners',
+    racingLine: 'full',
+    steeringAssist: true,
+    brakingAssist: true,
   };
 
   private tickerIdx = 0;
@@ -527,6 +529,14 @@ export class MenuUI {
               ${seg('abs', 'true', 'ABS On', String(this.assists.abs))}
               ${seg('abs', 'false', 'ABS Off', String(this.assists.abs))}
             </div>
+            <div class="seg-row" style="margin-bottom:6px;">
+              ${seg('steerAssist', 'true', 'Steer Assist On', String(this.assists.steeringAssist !== false))}
+              ${seg('steerAssist', 'false', 'Off', String(this.assists.steeringAssist !== false))}
+            </div>
+            <div class="seg-row" style="margin-bottom:6px;">
+              ${seg('brakeAssist', 'true', 'Brake Assist On', String(this.assists.brakingAssist !== false))}
+              ${seg('brakeAssist', 'false', 'Off', String(this.assists.brakingAssist !== false))}
+            </div>
             <div class="seg-row">
               ${seg('line', 'corners', 'Corners Line', this.assists.racingLine)}
               ${seg('line', 'full', 'Full Line', this.assists.racingLine)}
@@ -764,6 +774,8 @@ export class MenuUI {
           if (g === 'gearbox') this.assists.gearbox = v as 'auto' | 'manual';
           if (g === 'tc') this.assists.tractionControl = v as 'full' | 'medium' | 'off';
           if (g === 'abs') this.assists.abs = v === 'true';
+          if (g === 'steerAssist') this.assists.steeringAssist = v === 'true';
+          if (g === 'brakeAssist') this.assists.brakingAssist = v === 'true';
           if (g === 'line') this.assists.racingLine = v as 'full' | 'corners' | 'off';
           this.render();
           return;

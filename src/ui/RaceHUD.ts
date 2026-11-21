@@ -2,8 +2,29 @@ import { TEAMS } from '../data/teamsAndDrivers';
 import { TIRE_SPECS } from '../engine/CarPhysics';
 import { formatLapTime, RaceManager } from '../engine/RaceManager';
 import { CAMERA_LABELS, type CameraMode } from '../rendering/CameraRig';
+import { mapAnalogWheelSteer } from '../engine/InputManager';
 import { SAMPLE_COUNT } from '../engine/TrackSpline';
 import type { PwaState } from './PwaManager';
+
+export type MobileSteerMode = 'buttons' | 'wheel';
+
+const STORAGE_MOBILE_STEER_MODE_KEY = 'f1_2026_mobile_steer_mode';
+
+function loadMobileSteerMode(): MobileSteerMode {
+  try {
+    return localStorage.getItem(STORAGE_MOBILE_STEER_MODE_KEY) === 'wheel' ? 'wheel' : 'buttons';
+  } catch {
+    return 'buttons';
+  }
+}
+
+function saveMobileSteerMode(mode: MobileSteerMode): void {
+  try {
+    localStorage.setItem(STORAGE_MOBILE_STEER_MODE_KEY, mode);
+  } catch {
+    // Ignore unavailable storage
+  }
+}
 
 export interface RaceHUDCallbacks {
   onTogglePause(): void;
@@ -20,6 +41,8 @@ export interface RaceHUDCallbacks {
   onSetAutoGas(enabled: boolean): void;
   onToggleFullscreen?(): void;
   getPwaState?(): PwaState;
+  onToggleEasyAssists?(): boolean;
+  isEasyAssistsEnabled?(): boolean;
 }
 
 export class RaceHUD {
@@ -51,12 +74,18 @@ export class RaceHUD {
   private touchToggleBtnEl!: HTMLElement;
   private fullscreenBtnEl!: HTMLElement;
   private pauseFullscreenBtnEl!: HTMLElement;
+  private pauseAssistsBtnEl!: HTMLElement;
+  private pauseSteerModeBtnEl!: HTMLElement;
   private lastPwaState: PwaState | null = null;
   private touchLayerEl!: HTMLElement;
   private touchBoostBtnEl!: HTMLElement;
   private touchBoostPctEl!: HTMLElement;
+  private steerButtonsEl!: HTMLElement;
+  private steerLeftBtnEl!: HTMLElement;
+  private steerRightBtnEl!: HTMLElement;
   private steerWheelEl!: HTMLElement;
   private steerKnobEl!: HTMLElement;
+  private mobileSteerMode: MobileSteerMode = loadMobileSteerMode();
   private mPosEl!: HTMLElement;
   private mSpeedEl!: HTMLElement;
   private mGearEl!: HTMLElement;
@@ -129,6 +158,8 @@ export class RaceHUD {
     this.pauseBtnEl.textContent = this.mobileMode ? '⏸' : '⏸ Esc';
     this.callbacks.onSetAutoGas(this.touchControlsEnabled);
     if (!this.touchControlsEnabled) {
+      this.steerLeftBtnEl.classList.remove('pressed');
+      this.steerRightBtnEl.classList.remove('pressed');
       this.steerWheelEl.classList.remove('active');
       this.steerKnobEl.style.transform = 'translateX(0px) rotate(0deg)';
       this.callbacks.onTouchSteer(0);
@@ -144,7 +175,39 @@ export class RaceHUD {
 
   setPaused(paused: boolean): void {
     if (!this.builtDom) return;
+    if (paused) {
+      this.syncPauseAssistLabels();
+    }
     this.pauseModalEl.classList.toggle('hidden', !paused);
+  }
+
+  private syncPauseAssistLabels(): void {
+    if (!this.builtDom) return;
+    if (this.callbacks.isEasyAssistsEnabled) {
+      const enabled = this.callbacks.isEasyAssistsEnabled();
+      this.pauseAssistsBtnEl.textContent = enabled
+        ? '🧭 Easy Drive Assists: ON'
+        : '🧭 Easy Drive Assists: OFF';
+      this.pauseAssistsBtnEl.classList.toggle('hidden', false);
+    } else {
+      this.pauseAssistsBtnEl.classList.add('hidden');
+    }
+    this.pauseSteerModeBtnEl.textContent =
+      this.mobileSteerMode === 'buttons'
+        ? '🎮 Steer: ◀▶ Buttons'
+        : '🎮 Steer: 🎡 Analog Wheel';
+  }
+
+  private syncSteerModeUI(): void {
+    if (!this.builtDom) return;
+    this.steerButtonsEl.classList.toggle('hidden', this.mobileSteerMode !== 'buttons');
+    this.steerWheelEl.classList.toggle('hidden', this.mobileSteerMode !== 'wheel');
+    this.steerLeftBtnEl.classList.remove('pressed');
+    this.steerRightBtnEl.classList.remove('pressed');
+    this.steerWheelEl.classList.remove('active');
+    this.steerKnobEl.style.transform = 'translateX(0px) rotate(0deg)';
+    this.callbacks.onTouchSteer(0);
+    this.syncPauseAssistLabels();
   }
 
   setCameraLabel(mode: CameraMode): void {
@@ -215,10 +278,14 @@ export class RaceHUD {
           <button class="hud-pill-btn" data-hud-btn="pause">⏸ Esc</button>
         </div>
 
-        <!-- Asphalt-Style Mobile On-Screen Touch Controls (Analog Wheel + Boost / Brake) -->
+        <!-- Asphalt-Style Mobile On-Screen Touch Controls (Big ◀ ▶ Buttons or Analog Wheel + Boost / Brake) -->
         <div class="touch-controls-layer hidden" data-hud="touch-layer">
           <div class="touch-left-zone">
-            <div class="analog-steer-zone" data-touch="steer-wheel" aria-label="Analog Steering Wheel">
+            <div class="touch-steer-pad" data-touch="steer-buttons" aria-label="Steering Buttons">
+              <button class="touch-steer-btn" data-touch="steer-left" aria-label="Steer Left">◀</button>
+              <button class="touch-steer-btn" data-touch="steer-right" aria-label="Steer Right">▶</button>
+            </div>
+            <div class="analog-steer-zone hidden" data-touch="steer-wheel" aria-label="Analog Steering Wheel">
               <div class="analog-steer-track">
                 <span class="analog-chevron left">◀</span>
                 <span class="analog-center-tick"></span>
@@ -301,10 +368,15 @@ export class RaceHUD {
         <div class="modal-backdrop hidden" data-hud="pause-modal">
           <div class="podium-panel" style="width:420px;text-align:center;">
             <div class="section-title">Session Paused</div>
-            <p style="font-size:13px;color:var(--text-muted);">
+            <p class="pause-desktop-hint" style="font-size:13px;color:var(--text-muted);">
               W/S Gas & Brake • A/D Steer • Space Boost • C Camera • P Pit Box • R Track Reset
             </p>
+            <p class="pause-mobile-hint" style="font-size:13px;color:var(--text-muted);">
+              Tap ◀ ▶ to steer • Hold BRAKE for sharp corners • Tap ⚡ BOOST on straights
+            </p>
             <button class="btn-primary" data-hud-btn="resume">Resume Driving</button>
+            <button class="btn-secondary" data-hud-btn="pause-assists">🧭 Easy Drive Assists: ON</button>
+            <button class="btn-secondary mobile-only-pause-btn" data-hud-btn="pause-steer-mode">🎮 Steer: ◀▶ Buttons</button>
             <button class="btn-secondary hidden" data-hud-btn="pause-fullscreen">⛶ Fullscreen Mode</button>
             <button class="btn-secondary" data-hud-btn="restart">Restart Session</button>
             <button class="btn-secondary" data-hud-btn="quit">Quit to Main Menu</button>
@@ -339,9 +411,14 @@ export class RaceHUD {
     this.touchToggleBtnEl = q('[data-hud-btn="touch"]');
     this.fullscreenBtnEl = q('[data-hud-btn="fullscreen"]');
     this.pauseFullscreenBtnEl = q('[data-hud-btn="pause-fullscreen"]');
+    this.pauseAssistsBtnEl = q('[data-hud-btn="pause-assists"]');
+    this.pauseSteerModeBtnEl = q('[data-hud-btn="pause-steer-mode"]');
     this.touchLayerEl = q('[data-hud="touch-layer"]');
     this.touchBoostBtnEl = q('[data-touch="boost"]');
     this.touchBoostPctEl = q('[data-touch="boost-pct"]');
+    this.steerButtonsEl = q('[data-touch="steer-buttons"]');
+    this.steerLeftBtnEl = q('[data-touch="steer-left"]');
+    this.steerRightBtnEl = q('[data-touch="steer-right"]');
     this.steerWheelEl = q('[data-touch="steer-wheel"]');
     this.steerKnobEl = q('[data-touch="steer-knob"]');
     this.mPosEl = q('[data-hud="m-pos"]');
@@ -366,10 +443,59 @@ export class RaceHUD {
     });
     q('[data-hud-btn="pause"]').addEventListener('click', () => this.callbacks.onTogglePause());
     q('[data-hud-btn="resume"]').addEventListener('click', () => this.callbacks.onTogglePause());
+    this.pauseAssistsBtnEl.addEventListener('click', () => {
+      this.callbacks.onToggleEasyAssists?.();
+      this.syncPauseAssistLabels();
+    });
+    this.pauseSteerModeBtnEl.addEventListener('click', () => {
+      this.mobileSteerMode = this.mobileSteerMode === 'buttons' ? 'wheel' : 'buttons';
+      saveMobileSteerMode(this.mobileSteerMode);
+      this.syncSteerModeUI();
+    });
     q('[data-hud-btn="restart"]').addEventListener('click', () => this.callbacks.onRestartRace());
     q('[data-hud-btn="quit"]').addEventListener('click', () => this.callbacks.onQuitToMenu());
 
-    // Bind Virtual Analog Steering Wheel / Horizontal Slider (-1.0 to +1.0 with 0.06 center deadzone)
+    // Bind Asphalt Left/Right Steering Pad with unified pointer capture for effortless thumb slides
+    const steerButtons = this.steerButtonsEl;
+    const leftBtn = this.steerLeftBtnEl;
+    const rightBtn = this.steerRightBtnEl;
+    let activePadPointer: number | null = null;
+
+    const updateButtonsFromPointer = (clientX: number) => {
+      const leftRect = leftBtn.getBoundingClientRect();
+      const rightRect = rightBtn.getBoundingClientRect();
+      const dir = clientX <= leftRect.right ? -1 : clientX >= rightRect.left ? 1 : 0;
+      leftBtn.classList.toggle('pressed', dir < 0);
+      rightBtn.classList.toggle('pressed', dir > 0);
+      this.callbacks.onTouchSteer(dir);
+    };
+
+    const clearButtons = () => {
+      activePadPointer = null;
+      leftBtn.classList.remove('pressed');
+      rightBtn.classList.remove('pressed');
+      this.callbacks.onTouchSteer(0);
+    };
+
+    steerButtons.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      activePadPointer = e.pointerId;
+      steerButtons.setPointerCapture?.(e.pointerId);
+      updateButtonsFromPointer(e.clientX);
+    });
+    steerButtons.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== activePadPointer) return;
+      e.preventDefault();
+      updateButtonsFromPointer(e.clientX);
+    });
+    steerButtons.addEventListener('pointerup', (e) => {
+      if (e.pointerId === activePadPointer) clearButtons();
+    });
+    steerButtons.addEventListener('pointercancel', (e) => {
+      if (e.pointerId === activePadPointer) clearButtons();
+    });
+
+    // Bind Virtual Analog Steering Wheel with progressive center-deadzone precision curve
     const steerWheel = this.steerWheelEl;
     const steerKnob = this.steerKnobEl;
     let activeSteerPointer: number | null = null;
@@ -377,14 +503,9 @@ export class RaceHUD {
     const updateSteerFromPointer = (clientX: number) => {
       const rect = steerWheel.getBoundingClientRect();
       const centerX = rect.left + rect.width * 0.5;
-      const raw = (clientX - centerX) / Math.max(1, rect.width * 0.42);
-      const clamped = Math.max(-1, Math.min(1, raw));
-      const steer =
-        Math.abs(clamped) < 0.06
-          ? 0
-          : (Math.sign(clamped) * (Math.abs(clamped) - 0.06)) / 0.94;
+      const steer = mapAnalogWheelSteer((clientX - centerX) / Math.max(1, rect.width * 0.44));
       steerWheel.classList.add('active');
-      steerKnob.style.transform = `translateX(${steer * 34}px) rotate(${steer * 52}deg)`;
+      steerKnob.style.transform = `translateX(${steer * 48}px) rotate(${steer * 52}deg)`;
       this.callbacks.onTouchSteer(steer);
     };
 
@@ -439,6 +560,7 @@ export class RaceHUD {
     q('[data-touch="reset"]').addEventListener('click', () => this.callbacks.onTouchReset());
 
     this.builtDom = true;
+    this.syncSteerModeUI();
   }
 
   private setupMinimapProjection(race: RaceManager): void {

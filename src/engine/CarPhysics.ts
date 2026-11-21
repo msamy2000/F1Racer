@@ -45,6 +45,8 @@ export interface AssistConfig {
   tractionControl: 'full' | 'medium' | 'off';
   abs: boolean;
   racingLine: 'full' | 'corners' | 'off';
+  steeringAssist?: boolean;
+  brakingAssist?: boolean;
 }
 
 export interface CarState {
@@ -321,6 +323,68 @@ export function stepCarPhysics(
     }
   }
 
+  // Optional player-friendly driving assists (off in pit lane; bypassed on Boost / manual Brake)
+  if (car.isPlayer && !car.inPitLane && car.speed > 1.5) {
+    if (assists.brakingAssist && car.speed > 14 && !input.boost) {
+      const dsMeters = track.totalLength / Math.max(1, track.samples.length);
+      const lookDist = 14 + car.speed * 0.48;
+      const steps = Math.max(2, Math.round(lookDist / dsMeters));
+      let minRecSpeed = track.sampleAtIndex(proj.sampleIndex).recommendedSpeed;
+      for (let i = 1; i <= steps; i++) {
+        const s = track.sampleAtIndex(proj.sampleIndex + i);
+        if (s.recommendedSpeed < minRecSpeed) {
+          minRecSpeed = s.recommendedSpeed;
+        }
+      }
+      if (car.speed > minRecSpeed * 1.06) {
+        const overspeed = car.speed - minRecSpeed * 1.04;
+        const assistBrake = Math.min(0.86, overspeed * 0.14);
+        effectiveThrottle = Math.min(effectiveThrottle, Math.max(0, 1 - overspeed * 0.25));
+        effectiveBrake = Math.max(effectiveBrake, assistBrake);
+      }
+    }
+
+    if (assists.steeringAssist) {
+      const rawAbs = Math.abs(effectiveSteer);
+      const precisionSteer =
+        Math.sign(effectiveSteer) * (0.34 * rawAbs + 0.66 * rawAbs * rawAbs);
+      const hiSpeedCalm = 1 - Math.min(0.46, Math.max(0, (car.speed - 28) / 130));
+      const shapedPlayerSteer = precisionSteer * hiSpeedCalm;
+
+      const safeHalf = Math.max(2.0, halfWidth - 1.65);
+      const laneHint = rawAbs < 0.08 ? proj.lateralOffset * 0.94 : proj.lateralOffset;
+      const targetLane = THREE.MathUtils.clamp(laneHint, -safeHalf, safeHalf);
+      const lookAheadMeters = Math.min(42, 12 + car.speed * 0.28);
+      const aheadSample = track.sampleAtS(
+        (proj.s + lookAheadMeters / Math.max(1, track.totalLength)) % 1,
+      );
+      const aimX = aheadSample.position.x + aheadSample.right.x * targetLane;
+      const aimZ = aheadSample.position.z + aheadSample.right.z * targetLane;
+      const desiredHeading = Math.atan2(aimX - car.x, aimZ - car.z);
+      let aimErr = desiredHeading - car.heading;
+      while (aimErr > Math.PI) aimErr -= Math.PI * 2;
+      while (aimErr < -Math.PI) aimErr += Math.PI * 2;
+
+      // Positive steer turns right (decreases heading)
+      const autoFollowSteer = THREE.MathUtils.clamp(-aimErr * 1.95, -0.96, 0.96);
+
+      if (rawAbs < 0.08) {
+        const edgeBoost = Math.abs(proj.lateralOffset) > safeHalf * 0.85 ? 0.95 : 0.82;
+        effectiveSteer = THREE.MathUtils.clamp(shapedPlayerSteer + autoFollowSteer * edgeBoost, -1, 1);
+      } else {
+        let blended = shapedPlayerSteer + autoFollowSteer * 0.30;
+        const outsideSafe = Math.abs(proj.lateralOffset) > safeHalf;
+        const pushingOut =
+          Math.sign(proj.lateralOffset) === Math.sign(effectiveSteer) ||
+          Math.sign(proj.lateralOffset) === Math.sign(aimErr);
+        if (outsideSafe && pushingOut) {
+          blended += autoFollowSteer * 0.38;
+        }
+        effectiveSteer = THREE.MathUtils.clamp(blended, -1, 1);
+      }
+    }
+  }
+
   // Surface detection (asphalt / kerbs / off-track gravel-grass)
   const absLat = Math.abs(proj.lateralOffset);
   car.onKerb =
@@ -526,6 +590,11 @@ export function stepCarPhysics(
         powerSlip = rawDemand * 0.10;
       }
     }
+    if (car.isPlayer && assists.steeringAssist) {
+      powerSlip *= 0.35;
+      powerOversteerYaw *= 0.35;
+      powerOversteerSlide *= 0.35;
+    }
   }
 
   // Roadside / Off-track gravel & grass slowdown (velocity-proportional so car NEVER gets stuck at 0 km/h!)
@@ -669,7 +738,10 @@ export function stepCarPhysics(
       ? -Math.sign(lateralG) * (Math.abs(lateralG) - cornerGripAccel * 0.82) * 0.22
       : 0;
   const oversteerOut = -Math.sign(effectiveSteer || 0) * powerOversteerSlide;
-  const slipTarget = slipMag + oversteerOut;
+  let slipTarget = slipMag + oversteerOut;
+  if (car.isPlayer && assists.steeringAssist) {
+    slipTarget *= 0.55;
+  }
   car.lateralSpeed += (slipTarget - car.lateralSpeed) * Math.min(1, dt * 8);
 
   // Live tire thermal simulation (88°C - 104°C optimal window)

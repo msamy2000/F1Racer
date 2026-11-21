@@ -11,6 +11,18 @@ export interface ControlInput {
   pausePressed: boolean;
 }
 
+/**
+ * Maps a normalized horizontal wheel offset (-1..+1) through a forgiving center deadzone (0.12)
+ * and a progressive quadratic-like curve so small thumb adjustments stay calm at 300+ km/h.
+ */
+export function mapAnalogWheelSteer(normalizedOffset: number): number {
+  if (!Number.isFinite(normalizedOffset)) return 0;
+  const clamped = Math.max(-1, Math.min(1, normalizedOffset));
+  const abs = Math.abs(clamped);
+  if (abs <= 0.12) return 0;
+  return Math.sign(clamped) * Math.pow((abs - 0.12) / 0.88, 1.8);
+}
+
 export class InputManager {
   private keys = new Set<string>();
   private queuedEdge = {
@@ -129,10 +141,10 @@ export class InputManager {
     const keySteer = right - left;
     const rawSteer = Math.max(-1, Math.min(1, keySteer !== 0 ? keySteer : this.touchSteer));
 
-    // Speed-sensitive steering ramp: brisk in tight hairpins, smooth at 330+ km/h
+    // Speed-sensitive steering ramp: forgiving progressive taps, smooth at 330+ km/h
     const speedRatio = Math.min(1, speedMps / 92);
-    const steerInRate = 7.5 - speedRatio * 3.0;
-    const steerReturnRate = 11.5;
+    const steerInRate = 5.6 - speedRatio * 2.4;
+    const steerReturnRate = 12.0;
 
     if (rawSteer !== 0) {
       const target = rawSteer * (1.0 - speedRatio * 0.24);

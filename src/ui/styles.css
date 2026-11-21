@@ -1155,11 +1155,44 @@ body,
   touch-action: none;
 }
 
+.touch-steer-pad {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  touch-action: none;
+}
+
+.touch-steer-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 22px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  background: radial-gradient(circle, rgba(16, 22, 38, 0.62) 0%, rgba(10, 14, 24, 0.82) 100%);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
+  transition: transform 0.06s ease, border-color 0.08s ease, background 0.08s ease, box-shadow 0.08s ease;
+}
+
+.touch-steer-btn.pressed {
+  transform: scale(0.93);
+  border-color: #00e5ff;
+  background: radial-gradient(circle, rgba(0, 229, 255, 0.42), rgba(12, 18, 34, 0.9));
+  color: #e0faff;
+  box-shadow: 0 0 24px rgba(0, 229, 255, 0.55);
+}
+
 .analog-steer-zone {
   position: relative;
-  width: 152px;
-  height: 152px;
-  border-radius: 50%;
+  width: 188px;
+  height: 112px;
+  border-radius: 56px;
   border: 2px solid rgba(255, 255, 255, 0.22);
   background: radial-gradient(circle, rgba(12, 16, 28, 0.36) 0%, rgba(12, 16, 28, 0.68) 100%);
   backdrop-filter: blur(8px);
@@ -1664,4 +1697,18 @@ body.is-mobile-ui .hud-pill-btn[data-hud-btn="fullscreen"] {
 
 .ios-install-steps strong {
   color: #ffffff;
+}
+
+.pause-mobile-hint,
+.mobile-only-pause-btn {
+  display: none;
+}
+
+body.is-mobile-ui .pause-desktop-hint {
+  display: none;
+}
+
+body.is-mobile-ui .pause-mobile-hint,
+body.is-mobile-ui .mobile-only-pause-btn {
+  display: block;
 }

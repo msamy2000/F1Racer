@@ -234,6 +234,25 @@ const hud = new RaceHUD(hudLayer, {
   getPwaState() {
     return pwa.getState();
   },
+  isEasyAssistsEnabled() {
+    const assists = activeRace?.settings.assists ?? menuUI.assists;
+    return Boolean(assists.steeringAssist || assists.brakingAssist);
+  },
+  onToggleEasyAssists() {
+    const current = activeRace?.settings.assists ?? menuUI.assists;
+    const next = !(current.steeringAssist || current.brakingAssist);
+    if (activeRace) {
+      activeRace.settings.assists.steeringAssist = next;
+      activeRace.settings.assists.brakingAssist = next;
+    }
+    menuUI.assists.steeringAssist = next;
+    menuUI.assists.brakingAssist = next;
+    if (lastRaceSettings) {
+      lastRaceSettings.assists.steeringAssist = next;
+      lastRaceSettings.assists.brakingAssist = next;
+    }
+    return next;
+  },
 });
 
 const deviceProfile = new DeviceProfileManager(uiRoot);
