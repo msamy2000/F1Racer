@@ -175,10 +175,11 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     menu.destroy();
   });
 
-  it('precaches all 6 flex-star grid portraits in sw.js v4 without blocking image cache writes', async () => {
+  it('precaches all 6 flex-star grid portraits in sw.js without blocking image cache writes', async () => {
     const fs = await loadFs();
     const sw = fs.readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf-8');
-    expect(sw).toContain('f1-2026-world-tour-v4');
+    expect(sw).toMatch(/f1-2026-world-tour-v\d+/);
+    expect(sw).toContain('f1-2026-world-tour-v5');
     for (const name of [
       'yahia-mercedes.png',
       'yahia-redbull.png',

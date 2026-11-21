@@ -720,9 +720,7 @@ export class RaceHUD {
     const ctx = this.minimapCtx;
     ctx.clearRect(0, 0, 160, 130);
 
-    // Draw track outline
-    ctx.strokeStyle = 'rgba(255,255,255,0.34)';
-    ctx.lineWidth = 4;
+    // Draw track outline with subtle backing stroke for crisp legibility over sky or tarmac
     ctx.beginPath();
     for (let i = 0; i < SAMPLE_COUNT; i += 6) {
       const p = race.track.samples[i].position;
@@ -732,6 +730,12 @@ export class RaceHUD {
       else ctx.lineTo(mx, my);
     }
     ctx.closePath();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 6.5;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+    ctx.lineWidth = 3.5;
     ctx.stroke();
 
     // Draw car dots
@@ -741,12 +745,12 @@ export class RaceHUD {
       const mx = (car.x - this.minimapMinX) * this.minimapScale + this.minimapOx;
       const my = (car.z - this.minimapMinZ) * this.minimapScale + this.minimapOy;
       ctx.beginPath();
-      ctx.arc(mx, my, car.isPlayer ? 4.5 : 3, 0, Math.PI * 2);
+      ctx.arc(mx, my, car.isPlayer ? 5.2 : 3, 0, Math.PI * 2);
       ctx.fillStyle = car.isPlayer ? '#FFFFFF' : TEAMS[teamId].uiColor;
       ctx.fill();
       if (car.isPlayer) {
         ctx.strokeStyle = '#E10600';
-        ctx.lineWidth = 1.6;
+        ctx.lineWidth = 1.8;
         ctx.stroke();
       }
     }
