@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { CIRCUITS } from '../data/circuits';
-import { YAHIA_DRIVER } from '../data/teamsAndDrivers';
+import { ALL_DRIVERS, YAHIA_DRIVER } from '../data/teamsAndDrivers';
 import { createInitialCarState } from '../engine/CarPhysics';
 import { TrackSpline } from '../engine/TrackSpline';
 import { buildF1CarMesh, buildGhostCarMesh } from '../rendering/CarMeshBuilder';
 import { EffectsManager } from '../rendering/EffectsManager';
+import { buildPodiumDriverCharacter, resolvePodiumDrivers } from '../rendering/SceneManager';
 
 function withMockCanvas<T>(fn: () => T): T {
   const prevDoc = (globalThis as { document?: unknown }).document;
@@ -210,5 +211,60 @@ describe('CarMeshBuilder & EffectsManager — 2026 Rig, Cockpit & Zero-GC Effect
     const skidsMesh = meshes[2];
     expect(skidsMesh.count).toBe(600);
     fx.dispose();
+  });
+
+  it('builds all 12 visible F1 grid cars independently and creates 3 articulated podium driver characters', () => {
+    withMockCanvas(() => {
+      const rbr = new TrackSpline(CIRCUITS['red-bull-ring']);
+      const rigs = ALL_DRIVERS.map((drv, idx) => {
+        const car = createInitialCarState(drv.id, idx === 3, 1.0, rbr, idx, 'soft', false);
+        const rig = buildF1CarMesh(drv, 'mercedes', car.tireCompound);
+        rig.updateFromState(car, 0.1);
+        return { rig, car };
+      });
+
+      expect(rigs).toHaveLength(12);
+      const distinctX = new Set(rigs.map(({ rig }) => rig.root.position.x.toFixed(2)));
+      expect(distinctX.size).toBeGreaterThanOrEqual(6);
+      for (const { rig } of rigs) {
+        expect(rig.root.visible).toBe(true);
+        let meshCount = 0;
+        rig.root.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) meshCount += 1;
+        });
+        expect(meshCount).toBeGreaterThan(15);
+      }
+      // Disposing one car rig leaves remaining 11 grid car geometries intact
+      rigs[0].rig.dispose();
+      for (let i = 1; i < rigs.length; i++) {
+        let validGeo = 0;
+        rigs[i].rig.root.traverse((obj) => {
+          if (obj instanceof THREE.Mesh && obj.geometry.getAttribute('position').count > 0) {
+            validGeo += 1;
+          }
+        });
+        expect(validGeo).toBeGreaterThan(15);
+        rigs[i].rig.dispose();
+      }
+
+      // Podium ceremony resolves 3 distinct drivers and constructs P1/P2/P3 articulated characters
+      const podiumDrivers = resolvePodiumDrivers(YAHIA_DRIVER);
+      expect(new Set(podiumDrivers.map((d) => d.id)).size).toBe(3);
+
+      const trimByRank = ['#FFD700', '#CBD5E1', '#D97706'] as const;
+      (['1', '2', '3'] as const).forEach((rank, idx) => {
+        const pRig = buildPodiumDriverCharacter(
+          podiumDrivers[idx],
+          'mercedes',
+          rank,
+          trimByRank[idx],
+          1.6 - idx * 0.4,
+        );
+        expect(pRig.group.name).toBe(`podium-driver-${rank}`);
+        expect(pRig.rightArm.children.length).toBeGreaterThanOrEqual(4); // shoulder, upper, glove + trophy
+        expect(pRig.leftArm.children.length).toBeGreaterThanOrEqual(4); // shoulder, upper, glove + champagne bottle
+        expect(pRig.trophyGroup.children.length).toBe(4);
+      });
+    });
   });
 });

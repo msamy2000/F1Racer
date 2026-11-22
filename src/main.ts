@@ -239,20 +239,17 @@ const hud = new RaceHUD(hudLayer, {
   },
   isEasyAssistsEnabled() {
     const assists = activeRace?.settings.assists ?? menuUI.assists;
-    return Boolean(assists.steeringAssist || assists.brakingAssist);
+    return assists.steeringAssist !== false;
   },
   onToggleEasyAssists() {
     const current = activeRace?.settings.assists ?? menuUI.assists;
-    const next = !(current.steeringAssist || current.brakingAssist);
+    const next = !(current.steeringAssist !== false);
     if (activeRace) {
       activeRace.settings.assists.steeringAssist = next;
-      activeRace.settings.assists.brakingAssist = next;
     }
     menuUI.assists.steeringAssist = next;
-    menuUI.assists.brakingAssist = next;
     if (lastRaceSettings) {
       lastRaceSettings.assists.steeringAssist = next;
-      lastRaceSettings.assists.brakingAssist = next;
     }
     return next;
   },
@@ -287,7 +284,7 @@ const hud = new RaceHUD(hudLayer, {
     audio.setEngineActive(false);
     hud.hide();
     cleanupActiveSession();
-    sceneManager.enterPodiumCeremony(p1Driver, finishedSettings.yahiaTeamId, pColors);
+    sceneManager.enterPodiumCeremony(p1Driver, finishedSettings.yahiaTeamId, pColors, [p1Driver]);
     menuUI.showResults(ttResults, null, playerLaps, true);
   },
 });
@@ -400,6 +397,7 @@ function animate(nowMs: number): void {
         p1Driver,
         finishedSettings.yahiaTeamId,
         pColors,
+        [finishedResults[0]?.driver ?? p1Driver, finishedResults[1]?.driver, finishedResults[2]?.driver],
       );
       audio.playPodiumCelebration(playerPos === 1);
 
@@ -422,9 +420,17 @@ function animate(nowMs: number): void {
     }
   }
 
-  // Update 3D car rigs, track lights, racing line & ghost car
+  // Update 3D car rigs (also lazily materialize grid cars spawned after Qualifying -> Race transition)
   for (const car of race.cars) {
-    const rig = activeCarRigs.get(car.driverId);
+    let rig = activeCarRigs.get(car.driverId);
+    if (!rig && activeTrackWorld) {
+      const driver = race.driversById.get(car.driverId);
+      if (driver) {
+        rig = buildF1CarMesh(driver, race.settings.yahiaTeamId, car.tireCompound);
+        activeTrackWorld.group.add(rig.root);
+        activeCarRigs.set(car.driverId, rig);
+      }
+    }
     rig?.updateFromState(car, clockSec);
   }
 

@@ -407,7 +407,10 @@ function buildGlbF1CarMesh(
     if (!(obj instanceof THREE.Mesh)) return;
     obj.castShadow = true;
     obj.receiveShadow = true;
-    obj.userData.sharedGlbGeometry = true;
+    obj.frustumCulled = false;
+    // Clone BufferGeometry per car instance so disposing showroom or another car never corrupts shared GPU buffers
+    obj.geometry = obj.geometry.clone();
+    obj.userData.sharedGlbGeometry = false;
 
     const srcMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
     const matName = srcMat?.name ?? '';
@@ -511,6 +514,10 @@ function buildGlbF1CarMesh(
     wheelSpinMeshes.push(spinGroup);
     return steerGroup;
   };
+
+  root.visible = true;
+  bodyGroup.visible = true;
+  root.updateMatrixWorld(true);
 
   const frontLeftSteer = setupWheelPivot('front-left-wheel', true, true);
   const frontRightSteer = setupWheelPivot('front-right-wheel', true, false);
@@ -852,6 +859,9 @@ function buildGlbF1CarMesh(
   };
 
   const updateFromState = (state: CarState, clockSec: number) => {
+    if (!Number.isFinite(state.x) || !Number.isFinite(state.y) || !Number.isFinite(state.z)) {
+      return;
+    }
     root.position.set(state.x, state.y, state.z);
     root.rotation.y = state.heading;
     root.rotation.x = -state.pitch;
@@ -1543,6 +1553,9 @@ export function buildF1CarMesh(
   };
 
   const updateFromState = (state: CarState, clockSec: number) => {
+    if (!Number.isFinite(state.x) || !Number.isFinite(state.y) || !Number.isFinite(state.z)) {
+      return;
+    }
     root.position.set(state.x, state.y, state.z);
     root.rotation.y = state.heading;
     root.rotation.x = -state.pitch;

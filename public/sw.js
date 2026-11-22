@@ -1,4 +1,4 @@
-const CACHE_NAME = 'f1-2026-world-tour-v9';
+const CACHE_NAME = 'f1-2026-world-tour-v10';
 
 const SHELL_ASSETS = [
   './',

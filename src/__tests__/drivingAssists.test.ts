@@ -386,4 +386,62 @@ describe('Asphalt Driving Controls & Smart Driving Assists', () => {
     }
     expect(cutCar.penaltySeconds).toBe(3);
   });
+
+  it('decouples Easy Drive steeringAssist and BAS brakingAssist so each acts independently', () => {
+    const dt = 1 / 60;
+    let tightIdx = 0;
+    let lowestRec = Infinity;
+    for (let i = 0; i < monza.samples.length; i++) {
+      if (monza.samples[i].recommendedSpeed < lowestRec) {
+        lowestRec = monza.samples[i].recommendedSpeed;
+        tightIdx = i;
+      }
+    }
+    const approachIdx = (tightIdx - 6 + monza.samples.length) % monza.samples.length;
+    const sApproach = monza.samples[approachIdx];
+
+    const makeApproachCar = () => {
+      const c = createInitialCarState('yahia', true, 1.0, monza, 0, 'soft', true);
+      c.s = sApproach.s;
+      c.sampleIndex = approachIdx;
+      c.x = sApproach.position.x + sApproach.right.x * 3.0;
+      c.y = sApproach.position.y;
+      c.z = sApproach.position.z + sApproach.right.z * 3.0;
+      c.heading = Math.atan2(sApproach.tangent.x, sApproach.tangent.z);
+      c.speed = 88;
+      return c;
+    };
+
+    const basOnlyCar = makeApproachCar();
+    const steerOnlyCar = makeApproachCar();
+
+    for (let i = 0; i < 20; i++) {
+      stepCarPhysics(
+        basOnlyCar,
+        makeCtrl({ throttle: 1 }),
+        monza,
+        dt,
+        [basOnlyCar],
+        { ...RAW_ASSISTS, steeringAssist: false, brakingAssist: true },
+        5,
+        true,
+      );
+      stepCarPhysics(
+        steerOnlyCar,
+        makeCtrl({ throttle: 1 }),
+        monza,
+        dt,
+        [steerOnlyCar],
+        { ...RAW_ASSISTS, steeringAssist: true, brakingAssist: false },
+        5,
+        true,
+      );
+    }
+
+    // BAS-only brakes cleanly without engaging steeringAssist; Steer-only never triggers basActive
+    expect(basOnlyCar.basActive).toBe(true);
+    expect(basOnlyCar.speed).toBeLessThan(steerOnlyCar.speed - 6);
+    expect(steerOnlyCar.basActive).toBe(false);
+    expect(steerOnlyCar.brakeApplied).toBe(0);
+  });
 });

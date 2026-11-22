@@ -589,8 +589,8 @@ export class MenuUI {
               ${seg('abs', 'false', 'ABS Off', String(this.assists.abs))}
             </div>
             <div class="seg-row" style="margin-bottom:6px;">
-              ${seg('steerAssist', 'true', 'Steer Assist On', String(this.assists.steeringAssist !== false))}
-              ${seg('steerAssist', 'false', 'Off', String(this.assists.steeringAssist !== false))}
+              ${seg('steerAssist', 'true', 'Easy Drive (Steer) On', String(this.assists.steeringAssist !== false))}
+              ${seg('steerAssist', 'false', 'Easy Drive Off', String(this.assists.steeringAssist !== false))}
             </div>
             <div class="seg-row" style="margin-bottom:6px;">
               ${seg('brakeAssist', 'true', 'BAS On', String(this.assists.brakingAssist !== false))}

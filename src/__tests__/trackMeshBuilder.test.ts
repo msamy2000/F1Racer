@@ -177,4 +177,32 @@ describe('TrackMeshBuilder — Ribbon Normals, Closed Seam & World Clearances', 
       built.dispose();
     });
   });
+
+  it('builds distinct outdoor ecosystems & landmarks per daylight circuit (no shared mountains or treeline wall)', () => {
+    withMockCanvas(() => {
+      const rbrWorld = buildTrackWorld(new TrackSpline(CIRCUITS['red-bull-ring']));
+      const monzaWorld = buildTrackWorld(new TrackSpline(CIRCUITS.monza));
+      const silWorld = buildTrackWorld(new TrackSpline(CIRCUITS.silverstone));
+
+      expect(rbrWorld.group.getObjectByName('horizon-red-bull-ring')).toBeDefined();
+      expect(rbrWorld.group.getObjectByName('alpine-mountain-range')).toBeDefined();
+      expect(rbrWorld.group.getObjectByName('rbr-hillside-chalet')).toBeDefined();
+
+      expect(monzaWorld.group.getObjectByName('horizon-monza')).toBeDefined();
+      expect(monzaWorld.group.getObjectByName('lombardy-prealps-range')).toBeDefined();
+      expect(monzaWorld.group.getObjectByName('monza-park-wall')).toBeDefined();
+      expect(monzaWorld.group.getObjectByName('monza-park-bridge')).toBeDefined();
+
+      expect(silWorld.group.getObjectByName('horizon-silverstone')).toBeDefined();
+      expect(silWorld.group.getObjectByName('alpine-mountain-range')).toBeUndefined();
+      expect(silWorld.group.getObjectByName('lombardy-prealps-range')).toBeUndefined();
+      expect(silWorld.group.getObjectByName('silverstone-wing')).toBeDefined();
+      expect(silWorld.group.getObjectByName('silverstone-campsite')).toBeDefined();
+      expect(silWorld.group.getObjectByName('silverstone-cranes')).toBeDefined();
+
+      rbrWorld.dispose();
+      monzaWorld.dispose();
+      silWorld.dispose();
+    });
+  });
 });

@@ -110,6 +110,11 @@ function createMenuHarness() {
         (team === undefined || el.dataset.team === team),
     );
 
+  const findOpt = (group: string, val: string) =>
+    actionEls.find(
+      (el) => el.dataset.action === 'set-opt' && el.dataset.group === group && el.dataset.val === val,
+    );
+
   const getCardImgSrc = (driverId: string): string | null => {
     const marker = `data-driver="${driverId}"`;
     const idx = currentHtml.indexOf(marker);
@@ -124,6 +129,7 @@ function createMenuHarness() {
     preloadedSrcs,
     showroomCalls,
     findAction,
+    findOpt,
     getCardImgSrc,
     getHtml: () => currentHtml,
   };
@@ -217,7 +223,7 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     const fs = await loadFs();
     const sw = fs.readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf-8');
     expect(sw).toMatch(/f1-2026-world-tour-v\d+/);
-    expect(sw).toContain('f1-2026-world-tour-v9');
+    expect(sw).toContain('f1-2026-world-tour-v10');
     for (const name of [
       'yahia-mercedes.png',
       'yahia-redbull.png',
@@ -232,16 +238,27 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
   });
 
   it('renders BAS On/BAS Off setup toggle and mobile-ready results timing summary with penalty downgrade & lap chips', () => {
-    const { menu, findAction, getHtml } = createMenuHarness();
+    const { menu, findOpt, getHtml } = createMenuHarness();
     menu.screen = 'setup';
     menu.show();
     const setupHtml = getHtml();
+    expect(setupHtml).toContain('Easy Drive (Steer) On');
+    expect(setupHtml).toContain('Easy Drive Off');
     expect(setupHtml).toContain('BAS On');
     expect(setupHtml).toContain('BAS Off');
 
-    // Toggle BAS off and verify state updates
-    const offBtn = Array.from({ length: 1 }).map(() => findAction('set-opt'))[0];
-    expect(offBtn).toBeDefined();
+    // Decoupled toggle check: turning Easy Drive (steeringAssist) OFF leaves BAS (brakingAssist) ON, and vice versa
+    expect(menu.assists.steeringAssist).toBe(true);
+    expect(menu.assists.brakingAssist).toBe(true);
+    findOpt('steerAssist', 'false')?.click();
+    expect(menu.assists.steeringAssist).toBe(false);
+    expect(menu.assists.brakingAssist).toBe(true);
+    findOpt('brakeAssist', 'false')?.click();
+    expect(menu.assists.steeringAssist).toBe(false);
+    expect(menu.assists.brakingAssist).toBe(false);
+    findOpt('brakeAssist', 'true')?.click();
+    expect(menu.assists.steeringAssist).toBe(false);
+    expect(menu.assists.brakingAssist).toBe(true);
 
     // Render race results with penalty downgrade P1 -> P2 and player lap times
     const mockResults = ALL_DRIVERS.slice(0, 4).map((driver, idx) => {

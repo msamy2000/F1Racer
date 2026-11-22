@@ -7,6 +7,7 @@ import {
   createBrakingZoneSkidTexture,
   createCatchFenceTexture,
   createCircuitGantryBannerTexture,
+  createCircuitHorizonWallTexture,
   createFiaLightPanelTexture,
   createFoliageCanopyTexture,
   createGrandstandBannerTexture,
@@ -16,7 +17,6 @@ import {
   createPitGarageHeaderTexture,
   createPitSpeedBoardTexture,
   createSponsorBarrierTexture,
-  createTreelineWallTexture,
   createVegasBillboardTexture,
   createVegasSkylineWallTexture,
   getCachedTrackTextures,
@@ -488,61 +488,82 @@ function buildWallGeometry(
   return geo;
 }
 
-/** Continuous 360° multi-ridge mountain panorama with rocky/snowy vertex colors (replaces low-poly cones). */
-function buildMountainRangeMesh(
-  atmosphere: AtmospherePreset,
+/**
+ * Circuit-specific distant mountain backdrop:
+ * - Red Bull Ring: asymmetric 360° Seckauer Tauern Alps (steep rocky/snowy peaks north, low Murtal valley south)
+ * - Monza: distant hazy northern Lombardy Prealps / Monte Resegone arc only (flat Po Valley everywhere else)
+ * - Silverstone: null (completely flat Northamptonshire RAF airfield plateau)
+ */
+function buildCircuitMountainBackdrop(
+  circuitId: string,
   groundBaseY: number,
   innerR = 1480,
-): THREE.Mesh {
-  const radialSegs = 200;
+): THREE.Mesh | null {
+  if (circuitId === 'silverstone' || circuitId === 'las-vegas') {
+    return null;
+  }
+
+  const isMonza = circuitId === 'monza';
+  const radialSegs = isMonza ? 88 : 200;
   const heightRings = 7;
-  const outerR = innerR + 1150;
-  const maxPeak = atmosphere === 'alpine-day' ? 320 : atmosphere === 'golden-park' ? 140 : 95;
+  const startR = isMonza ? innerR + 420 : innerR;
+  const outerR = startR + (isMonza ? 780 : 1180);
+  const maxPeak = isMonza ? 148 : 375;
 
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
 
-  const cBase = new THREE.Color(
-    atmosphere === 'alpine-day' ? '#244127' : atmosphere === 'golden-park' ? '#2c4022' : '#2f452d',
-  );
-  const cMid = new THREE.Color(
-    atmosphere === 'alpine-day' ? '#4f5d56' : atmosphere === 'golden-park' ? '#4a5a3a' : '#4a5a4e',
-  );
-  const cRock = new THREE.Color('#6b727c');
-  const cSnow = new THREE.Color('#e8eef5');
+  const cBase = new THREE.Color(isMonza ? '#44594C' : '#244127');
+  const cMid = new THREE.Color(isMonza ? '#5E7284' : '#4F5D56');
+  const cRock = new THREE.Color(isMonza ? '#7C8FA3' : '#6B727C');
+  const cSnow = new THREE.Color('#E8EEF5');
   const tmpCol = new THREE.Color();
 
+  // Monza Prealps only occupy a 110° northern arc (sin(ang) < 0 -> -Z north horizon)
+  const angStart = isMonza ? -Math.PI * 0.84 : 0;
+  const angEnd = isMonza ? -Math.PI * 0.16 : Math.PI * 2;
+
   for (let r = 0; r <= heightRings; r++) {
-    const t = r / heightRings; // 0 = inner base, 0.55 = peak ridge, 1.0 = outer far slope
-    const radius = THREE.MathUtils.lerp(innerR, outerR, t);
-    // Ridge envelope: smoothly rises from 0 at inner base to 1 at ridge crest, drops at outer edge
+    const t = r / heightRings;
+    const radius = THREE.MathUtils.lerp(startR, outerR, t);
     const ridgeEnv = Math.sin(t * Math.PI);
     const sharpened = Math.pow(ridgeEnv, 1.15);
 
     for (let i = 0; i <= radialSegs; i++) {
-      const ang = (i / radialSegs) * Math.PI * 2;
-      // Multi-octave deterministic FBM mountain profile
+      const u = i / radialSegs;
+      const ang = THREE.MathUtils.lerp(angStart, angEnd, u);
       const n1 = Math.sin(ang * 3 + 0.4) * 0.45 + 0.55;
       const n2 = Math.sin(ang * 7 - 1.2) * 0.28 + 0.28;
       const n3 = Math.sin(ang * 15 + 2.1) * 0.14 + 0.14;
       const n4 = Math.sin(ang * 31 - 0.7) * 0.06 + 0.06;
-      const hNorm = Math.min(1, Math.max(0.08, (n1 + n2 + n3 + n4) * 0.65));
-      const y = groundBaseY - 12 + sharpened * maxPeak * hNorm;
+
+      let asymScale = 1.0;
+      if (isMonza) {
+        // Taper cleanly down into Po Plain at both eastern and western ends of northern Prealps
+        asymScale = Math.pow(Math.sin(u * Math.PI), 0.75);
+      } else {
+        // Red Bull Ring: steep towering Seckauer Tauern north (sin < 0), lower rolling hills south (sin > 0)
+        const northBias = THREE.MathUtils.clamp((-Math.sin(ang) + 1) * 0.5, 0, 1);
+        asymScale = THREE.MathUtils.lerp(0.28, 1.05, northBias);
+      }
+
+      const hNorm = Math.min(1, Math.max(0.05, (n1 + n2 + n3 + n4) * 0.65 * asymScale));
+      const y = groundBaseY - 14 + sharpened * maxPeak * hNorm;
 
       positions.push(Math.cos(ang) * radius, y, Math.sin(ang) * radius);
 
       const elev = (y - groundBaseY) / Math.max(1, maxPeak);
-      if (atmosphere === 'alpine-day') {
-        if (elev < 0.38) {
-          tmpCol.copy(cBase).lerp(cMid, elev / 0.38);
-        } else if (elev < 0.68) {
-          tmpCol.copy(cMid).lerp(cRock, (elev - 0.38) / 0.3);
-        } else {
-          tmpCol.copy(cRock).lerp(cSnow, Math.min(1, (elev - 0.68) / 0.25));
-        }
+      if (isMonza) {
+        tmpCol.copy(cBase).lerp(cRock, Math.min(1, elev * 1.15));
       } else {
-        tmpCol.copy(cBase).lerp(cMid, Math.min(1, elev * 1.4));
+        if (elev < 0.34) {
+          tmpCol.copy(cBase).lerp(cMid, elev / 0.34);
+        } else if (elev < 0.64) {
+          tmpCol.copy(cMid).lerp(cRock, (elev - 0.34) / 0.3);
+        } else {
+          tmpCol.copy(cRock).lerp(cSnow, Math.min(1, (elev - 0.64) / 0.24));
+        }
       }
       colors.push(tmpCol.r, tmpCol.g, tmpCol.b);
     }
@@ -571,7 +592,9 @@ function buildMountainRangeMesh(
     metalness: 0.02,
     flatShading: false,
   });
-  return new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = isMonza ? 'lombardy-prealps-range' : 'alpine-mountain-range';
+  return mesh;
 }
 
 /** Multi-plane crossed foliage canopy geometry so trees look volumetric from every camera angle. */
@@ -667,7 +690,7 @@ function buildSurroundingTerrain(
   }
 
   const hillAmp =
-    cfg.id === 'red-bull-ring' ? 56 : cfg.id === 'monza' ? 16 : 9;
+    cfg.id === 'red-bull-ring' ? 68 : cfg.id === 'monza' ? 3.2 : 1.6;
 
   const sampleY = (x: number, z: number): number => {
     let minSq = Infinity;
@@ -696,11 +719,16 @@ function buildSurroundingTerrain(
     const blend = Math.min(1, (dist - clearDist) / 110);
     const smooth = blend * blend * (3 - 2 * blend);
 
-    // Multi-octave organic landform elevation (always >= 0)
+    // Circuit-authentic landform elevation (always >= 0)
     const n1 = Math.sin(x * 0.0042 + 0.7) * Math.cos(z * 0.0038 - 0.4) * 0.5 + 0.5;
     const n2 = Math.sin(x * 0.011 - z * 0.009 + 1.3) * 0.5 + 0.5;
     const n3 = Math.cos(x * 0.023 + z * 0.021) * 0.5 + 0.5;
-    const hillH = (n1 * 0.6 + n2 * 0.28 + n3 * 0.12) * hillAmp;
+    let hillH = (n1 * 0.6 + n2 * 0.28 + n3 * 0.12) * hillAmp;
+    if (cfg.id === 'red-bull-ring') {
+      // Styrian Alps climb steepens behind northern Turns 2-4 (z < midZ), mellows toward southern Murtal meadow
+      const northSlope = THREE.MathUtils.clamp((midZ - z + 260) / 880, 0.22, 1.0);
+      hillH *= northSlope;
+    }
     const targetY = groundBaseY + 0.35 + hillH;
 
     return THREE.MathUtils.lerp(clearFloor, targetY, smooth);
@@ -1500,20 +1528,30 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
     glassStrip.position.set(-cfg.pitSide * 5.52, 6.1, 0);
     pitBuildingGroup.add(glassStrip);
 
-    // Silverstone Wing distinctive jagged angular roof vs sleek cantilevered F1 paddock roof
+    // Silverstone Wing distinctive jagged angular white/red roof vs sleek cantilevered F1 paddock roof
     if (cfg.id === 'silverstone') {
+      const silverstoneWing = new THREE.Group();
+      silverstoneWing.name = 'silverstone-wing';
       const wingRoofMat = new THREE.MeshStandardMaterial({
-        color: '#DCE4EE',
+        color: '#E8EEF5',
         metalness: 0.72,
-        roughness: 0.24,
+        roughness: 0.22,
+      });
+      const wingTrimMat = new THREE.MeshStandardMaterial({
+        color: '#E10600',
+        metalness: 0.4,
+        roughness: 0.35,
       });
       for (let w = 0; w < 3; w++) {
-        const wingBlade = new THREE.Mesh(new THREE.BoxGeometry(14.5, 0.55, 23.5), wingRoofMat);
-        wingBlade.position.set(-cfg.pitSide * 0.8, 8.6 + (w % 2) * 0.85, (w - 1) * 24);
-        wingBlade.rotation.z = cfg.pitSide * (w % 2 === 0 ? 0.14 : -0.10);
+        const wingBlade = new THREE.Mesh(new THREE.BoxGeometry(15.2, 0.58, 24.5), wingRoofMat);
+        wingBlade.position.set(-cfg.pitSide * 0.8, 8.7 + (w % 2) * 0.95, (w - 1) * 24);
+        wingBlade.rotation.z = cfg.pitSide * (w % 2 === 0 ? 0.16 : -0.11);
         wingBlade.castShadow = true;
-        pitBuildingGroup.add(wingBlade);
+        const fasciaRed = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.32, 24.6), wingTrimMat);
+        fasciaRed.position.set(-cfg.pitSide * 8.1, wingBlade.position.y - 0.1, (w - 1) * 24);
+        silverstoneWing.add(wingBlade, fasciaRed);
       }
+      pitBuildingGroup.add(silverstoneWing);
     } else {
       const canopyRoof = new THREE.Mesh(
         new THREE.BoxGeometry(14.2, 0.48, 74.5),
@@ -2701,20 +2739,30 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
     vegasHorizonWall.position.set(midX, groundBaseY + 58, midZ);
     group.add(vegasHorizonWall);
   } else {
-    // Photorealistic Alpha-Cutout Multi-Plane Trees + Textured Bark Trunks (Zero Smooth Spheres/Cones!)
-    const treeCount = 720;
-    const isAlpine = cfg.atmosphere === 'alpine-day';
+    // Circuit-specific daylight outdoor vegetation, horizon skyline & regional topography
+    const isAlpine = cfg.id === 'red-bull-ring';
+    const isMonza = cfg.id === 'monza';
+    const treeCount = isAlpine ? 460 : isMonza ? 860 : 160;
     const treeKind = isAlpine ? 'pine' : 'deciduous';
     const foliageTex = createFoliageCanopyTexture(treeKind);
     const barkTex = createBarkTexture();
     textures.push(foliageTex, barkTex);
 
-    const trunkGeo = new THREE.CylinderGeometry(0.26, 0.46, 4.4, 7);
+    const trunkGeo = new THREE.CylinderGeometry(
+      isAlpine ? 0.24 : isMonza ? 0.30 : 0.22,
+      isAlpine ? 0.44 : isMonza ? 0.50 : 0.38,
+      isAlpine ? 4.8 : isMonza ? 4.4 : 3.2,
+      7,
+    );
     const trunkMat = new THREE.MeshStandardMaterial({
       map: barkTex,
       roughness: 0.95,
     });
-    const foliageGeo = buildCrossedFoliageGeometry(isAlpine ? 6.6 : 7.6, isAlpine ? 11.5 : 8.2, !isAlpine);
+    const foliageGeo = buildCrossedFoliageGeometry(
+      isAlpine ? 6.4 : isMonza ? 8.2 : 6.2,
+      isAlpine ? 12.2 : isMonza ? 8.8 : 5.4,
+      !isAlpine,
+    );
     const foliageMat = new THREE.MeshStandardMaterial({
       color: '#FFFFFF',
       map: foliageTex,
@@ -2730,51 +2778,70 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
     canopies.castShadow = true;
     canopies.receiveShadow = true;
 
-    const palette =
-      cfg.atmosphere === 'golden-park'
-        ? ['#4E7A38', '#5E8A3E', '#6D9144', '#406B30', '#7B8F41']
-        : cfg.atmosphere === 'alpine-day'
-          ? ['#34693E', '#417B49', '#4D8A52', '#2B5B35', '#589458']
-          : ['#3E6E3F', '#4B7D48', '#588B52', '#356036', '#628E54'];
+    const palette = isMonza
+      ? ['#4A7634', '#5A853B', '#6B8E42', '#3A612B', '#7B8F41']
+      : isAlpine
+        ? ['#285633', '#356B3E', '#417B47', '#204A2A', '#4D864F']
+        : ['#436D3B', '#527B44', '#5E844A', '#385C31', '#6B8B50'];
     const tmpColor = new THREE.Color();
     const dummy = new THREE.Object3D();
 
     let placed = 0;
-    for (let i = 0; i < SAMPLE_COUNT * 2 && placed < treeCount; i++) {
-      const sIdx = i % SAMPLE_COUNT;
+    const maxLoop = SAMPLE_COUNT * (isMonza ? 3 : 2);
+    for (let i = 0; i < maxLoop && placed < treeCount; i++) {
+      const sIdx = (i * (isAlpine ? 3 : isMonza ? 1 : 7)) % SAMPLE_COUNT;
       const smp = track.samples[sIdx];
       const side = placed % 2 === 0 ? 1 : -1;
       const band = placed % 3;
-      const dist =
-        band === 0
-          ? halfW + 26 + ((i * 19) % 34)
+      const dist = isAlpine
+        ? band === 0
+          ? halfW + 32 + ((i * 23) % 44)
           : band === 1
-            ? halfW + 62 + ((i * 29) % 72)
-            : halfW + 135 + ((i * 41) % 95);
+            ? halfW + 78 + ((i * 31) % 88)
+            : halfW + 150 + ((i * 43) % 120)
+        : isMonza
+          ? band === 0
+            ? halfW + 22 + ((i * 17) % 24)
+            : band === 1
+              ? halfW + 48 + ((i * 23) % 52)
+              : halfW + 102 + ((i * 37) % 85)
+          : // Silverstone: open RAF airfield plateau — push sparse hedgerow/oak copses out to perimeter fields
+            band === 0
+              ? halfW + 58 + ((i * 29) % 46)
+              : halfW + 115 + ((i * 41) % 85);
+
       const cand = smp.position.clone().addScaledVector(smp.right, side * dist);
+
+      // Red Bull Ring keeps central Bull meadow and southern valley open, clustering spruce forest on northern Turn 2-4 slope
+      if (isAlpine && cand.z > midZ + 65 && i % 4 !== 0) continue;
 
       // Ensure tree never enters track, pit lane, pit paddock, or grandstands
       const proj = track.projectToTrack(cand.x, cand.z, 0);
-      if (Math.abs(proj.lateralOffset) < halfW + 20) continue;
+      const minTrackDist = isAlpine ? halfW + 24 : isMonza ? halfW + 19 : halfW + 46;
+      if (Math.abs(proj.lateralOffset) < minTrackDist) continue;
       if (
         isSInZone(proj.s, cfg.pitEntryS, cfg.pitExitS) &&
         Math.sign(proj.lateralOffset) === cfg.pitSide &&
-        Math.abs(proj.lateralOffset) < halfW + 46
+        Math.abs(proj.lateralOffset) < halfW + 52
       ) {
         continue;
       }
 
-      const scale = 0.85 + ((i * 13) % 7) * 0.16;
+      const scale = isAlpine
+        ? 0.92 + ((i * 13) % 7) * 0.17
+        : isMonza
+          ? 0.95 + ((i * 11) % 7) * 0.15
+          : 0.62 + ((i * 13) % 5) * 0.08;
       const baseY = sampleTerrainY(cand.x, cand.z);
       const yaw = (i * 1.9) % (Math.PI * 2);
 
-      dummy.position.set(cand.x, baseY + 2.0 * scale, cand.z);
+      dummy.position.set(cand.x, baseY + (isAlpine ? 2.2 : 1.9) * scale, cand.z);
       dummy.rotation.set(0, yaw, 0);
       dummy.scale.set(scale, scale, scale);
       dummy.updateMatrix();
       trunks.setMatrixAt(placed, dummy.matrix);
 
-      dummy.position.set(cand.x, baseY + (isAlpine ? 1.6 : 2.8) * scale, cand.z);
+      dummy.position.set(cand.x, baseY + (isAlpine ? 1.8 : 2.7) * scale, cand.z);
       dummy.rotation.set(0, yaw + 0.4, 0);
       dummy.scale.set(scale, scale, scale);
       dummy.updateMatrix();
@@ -2788,31 +2855,32 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
     if (canopies.instanceColor) canopies.instanceColor.needsUpdate = true;
     group.add(trunks, canopies);
 
-    // 360-degree Continuous Woodland Treeline Perimeter Backdrop around the Valley/Park
-    const treelineTex = createTreelineWallTexture(
-      cfg.atmosphere === 'golden-park'
-        ? 'golden-park'
-        : cfg.atmosphere === 'alpine-day'
-          ? 'alpine-day'
-          : 'british-day',
-    );
-    treelineTex.repeat.set(16, 1);
-    textures.push(treelineTex);
-    const treelineWall = new THREE.Mesh(
-      new THREE.CylinderGeometry(perimeterRadius, perimeterRadius, 56, 64, 1, true),
+    // Circuit-Specific Horizon Backdrop Cylinder (zero shared generic wall!)
+    const daylightId = (isAlpine
+      ? 'red-bull-ring'
+      : isMonza
+        ? 'monza'
+        : 'silverstone') as 'red-bull-ring' | 'monza' | 'silverstone';
+    const horizonTex = createCircuitHorizonWallTexture(daylightId);
+    horizonTex.repeat.set(isMonza ? 18 : 14, 1);
+    textures.push(horizonTex);
+    const horizonH = isMonza ? 68 : isAlpine ? 62 : 42;
+    const horizonWall = new THREE.Mesh(
+      new THREE.CylinderGeometry(perimeterRadius, perimeterRadius, horizonH, 64, 1, true),
       new THREE.MeshStandardMaterial({
-        map: treelineTex,
+        map: horizonTex,
         alphaTest: 0.35,
         side: THREE.DoubleSide,
         roughness: 0.95,
       }),
     );
-    treelineWall.position.set(midX, groundBaseY + 25, midZ);
-    group.add(treelineWall);
+    horizonWall.name = `horizon-${daylightId}`;
+    horizonWall.position.set(midX, groundBaseY + horizonH * 0.45, midZ);
+    group.add(horizonWall);
 
-    // Continuous 360° sculpted mountain panorama for Alpine (Red Bull Ring) & Lombardy foothills for Monza
-    if (cfg.id !== 'silverstone') {
-      const mountainRange = buildMountainRangeMesh(cfg.atmosphere, groundBaseY, perimeterRadius + 80);
+    // Circuit-Specific Mountain Backdrop (Red Bull Ring Seckauer Tauern Alps, Monza distant northern Prealps only, Silverstone none!)
+    const mountainRange = buildCircuitMountainBackdrop(cfg.id, groundBaseY, perimeterRadius + 80);
+    if (mountainRange) {
       mountainRange.position.set(midX, 0, midZ);
       group.add(mountainRange);
     }
@@ -2945,6 +3013,38 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
       onionDome.position.set(28, 31, 0);
       castleGroup.add(churchTower, onionDome);
       group.add(castleGroup);
+
+      // 4. Schönberghof / Red Bull Mobile Hillside Chalets & Orange-White Fan Hillside Tribunes overlooking Turn 2-3
+      const chaletSmp = track.sampleAtS(0.24);
+      const chaletPos = chaletSmp.position.clone().addScaledVector(chaletSmp.right, -54);
+      const chaletGroup = new THREE.Group();
+      chaletGroup.name = 'rbr-hillside-chalet';
+      chaletGroup.position.set(chaletPos.x, sampleTerrainY(chaletPos.x, chaletPos.z), chaletPos.z);
+      chaletGroup.rotation.y = Math.atan2(chaletSmp.tangent.x, chaletSmp.tangent.z);
+      const woodMat = new THREE.MeshStandardMaterial({ color: '#78482B', roughness: 0.85 });
+      const plasterMat = new THREE.MeshStandardMaterial({ color: '#F3ECE0', roughness: 0.75 });
+      const chaletRoofMat = new THREE.MeshStandardMaterial({ color: '#4B281E', roughness: 0.72 });
+      const chaletBody = new THREE.Mesh(new THREE.BoxGeometry(20, 9.5, 36), plasterMat);
+      chaletBody.position.set(0, 4.75, 0);
+      const timberDeck = new THREE.Mesh(new THREE.BoxGeometry(22, 3.2, 37), woodMat);
+      timberDeck.position.set(0, 8.2, 0);
+      const chaletRoof = new THREE.Mesh(new THREE.BoxGeometry(24, 2.4, 39), chaletRoofMat);
+      chaletRoof.position.set(0, 11.2, 0);
+      chaletRoof.rotation.z = 0.08;
+      chaletGroup.add(chaletBody, timberDeck, chaletRoof);
+      group.add(chaletGroup);
+
+      const orangeStandSmp = track.sampleAtS(0.34);
+      const orangeStandPos = orangeStandSmp.position.clone().addScaledVector(orangeStandSmp.right, 44);
+      const fanHillMat = new THREE.MeshStandardMaterial({ color: '#FF6A00', roughness: 0.7 });
+      const orangeDeck = new THREE.Mesh(new THREE.BoxGeometry(16, 4.2, 54), fanHillMat);
+      orangeDeck.position.set(
+        orangeStandPos.x,
+        sampleTerrainY(orangeStandPos.x, orangeStandPos.z) + 2.1,
+        orangeStandPos.z,
+      );
+      orangeDeck.rotation.y = Math.atan2(orangeStandSmp.tangent.x, orangeStandSmp.tangent.z);
+      group.add(orangeDeck);
     } else if (cfg.id === 'monza') {
       // 1. Historic 1955 Monza High-Speed Oval Banking (Sopraelevata) Viaduct & Overpass Bridge (s = 0.54)
       const bankSmp = track.sampleAtS(0.54);
@@ -3054,6 +3154,45 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
         flagBoard.rotation.y = Math.atan2(triSmp.tangent.x, triSmp.tangent.z);
         group.add(flagBoard);
       }
+
+      // 5. Historic Brick & Stone Parco di Monza Perimeter Walls + Viale Mirabello Stone Arch Park Bridge
+      const parkWallGroup = new THREE.Group();
+      parkWallGroup.name = 'monza-park-wall';
+      const parkStoneMat = new THREE.MeshStandardMaterial({ color: '#8A7B68', roughness: 0.90 });
+      const parkCapMat = new THREE.MeshStandardMaterial({ color: '#A69882', roughness: 0.85 });
+      for (const wallS of [0.14, 0.42, 0.68]) {
+        const wSmp = track.sampleAtS(wallS);
+        const wPos = wSmp.position.clone().addScaledVector(wSmp.right, 34);
+        const wYaw = Math.atan2(wSmp.tangent.x, wSmp.tangent.z);
+        const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.6, 56), parkStoneMat);
+        wallMesh.position.set(wPos.x, sampleTerrainY(wPos.x, wPos.z) + 1.8, wPos.z);
+        wallMesh.rotation.y = wYaw;
+        const capMesh = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.35, 56.4), parkCapMat);
+        capMesh.position.set(wPos.x, sampleTerrainY(wPos.x, wPos.z) + 3.7, wPos.z);
+        capMesh.rotation.y = wYaw;
+        parkWallGroup.add(wallMesh, capMesh);
+      }
+      group.add(parkWallGroup);
+
+      // Serraglio / Viale Mirabello historic arched park bridge spanning the back straight
+      const mirSmp = track.sampleAtS(0.72);
+      const mirGroup = new THREE.Group();
+      mirGroup.name = 'monza-park-bridge';
+      mirGroup.position.copy(mirSmp.position);
+      mirGroup.rotation.y = Math.atan2(mirSmp.tangent.x, mirSmp.tangent.z);
+      const bridgeSpan = cfg.trackWidth + 22;
+      const stoneDeck = new THREE.Mesh(new THREE.BoxGeometry(bridgeSpan, 2.2, 7.5), parkStoneMat);
+      stoneDeck.position.set(0, 7.6, 0);
+      stoneDeck.castShadow = true;
+      const stoneParapet = new THREE.Mesh(new THREE.BoxGeometry(bridgeSpan, 1.1, 7.9), parkCapMat);
+      stoneParapet.position.set(0, 9.1, 0);
+      mirGroup.add(stoneDeck, stoneParapet);
+      for (const side of [-1, 1] as const) {
+        const abutment = new THREE.Mesh(new THREE.BoxGeometry(5.5, 8.6, 8.2), parkStoneMat);
+        abutment.position.set(side * (halfW + 10.5), 4.3, 0);
+        mirGroup.add(abutment);
+      }
+      group.add(mirGroup);
     } else if (cfg.id === 'silverstone') {
       // 1. Historic WWII RAF Silverstone Airfield Control Tower, Radar Dome & Twin Corrugated Hangars
       const towerSmp = track.sampleAtS(0.30);
@@ -3177,6 +3316,57 @@ export function buildTrackWorld(track: TrackSpline): BuiltTrackWorld {
         }
         group.add(fbGroup);
       }
+
+      // 5. British GP Campervan, Caravan & White Glamping Tent Village overlooking outer Abbey/Stowe fields
+      const campSmp = track.sampleAtS(0.56);
+      const campCenter = campSmp.position.clone().addScaledVector(campSmp.right, 62);
+      const campGroup = new THREE.Group();
+      campGroup.name = 'silverstone-campsite';
+      campGroup.position.set(campCenter.x, sampleTerrainY(campCenter.x, campCenter.z), campCenter.z);
+      campGroup.rotation.y = Math.atan2(campSmp.tangent.x, campSmp.tangent.z);
+      const tentWhiteMat = new THREE.MeshStandardMaterial({ color: '#F8FAFC', roughness: 0.72 });
+      const vanMat = new THREE.MeshStandardMaterial({ color: '#CBD5E1', roughness: 0.5 });
+      const vanRoofMat = new THREE.MeshStandardMaterial({ color: '#38BDF8', roughness: 0.45 });
+      for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 5; col++) {
+          const px = (row - 1) * 14;
+          const pz = (col - 2) * 11;
+          if ((row + col) % 2 === 0) {
+            const tent = new THREE.Mesh(new THREE.ConeGeometry(3.2, 3.6, 4), tentWhiteMat);
+            tent.position.set(px, 1.8, pz);
+            tent.rotation.y = Math.PI / 4;
+            campGroup.add(tent);
+          } else {
+            const camper = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.8, 6.2), vanMat);
+            camper.position.set(px, 1.4, pz);
+            const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.66, 0.5, 6.26), vanRoofMat);
+            stripe.position.set(px, 2.2, pz);
+            campGroup.add(camper, stripe);
+          }
+        }
+      }
+      group.add(campGroup);
+
+      // 6. Yellow-Boom British GP Broadcast Camera Cranes & BRDC Clubhouse near Luffield/Club
+      const craneGroup = new THREE.Group();
+      craneGroup.name = 'silverstone-cranes';
+      const craneYellowMat = new THREE.MeshStandardMaterial({ color: '#FACC15', metalness: 0.35, roughness: 0.4 });
+      for (const cs of [0.22, 0.84]) {
+        const cSmp = track.sampleAtS(cs);
+        const cPos = cSmp.position.clone().addScaledVector(cSmp.right, -32);
+        const cy = sampleTerrainY(cPos.x, cPos.z);
+        const craneUnit = new THREE.Group();
+        craneUnit.position.set(cPos.x, cy, cPos.z);
+        craneUnit.rotation.y = Math.atan2(cSmp.tangent.x, cSmp.tangent.z);
+        const mast = new THREE.Mesh(new THREE.BoxGeometry(1.1, 24, 1.1), craneYellowMat);
+        mast.position.y = 12;
+        const jib = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 18), craneYellowMat);
+        jib.position.set(3.5, 24.5, 0);
+        jib.rotation.z = -0.32;
+        craneUnit.add(mast, jib);
+        craneGroup.add(craneUnit);
+      }
+      group.add(craneGroup);
     }
   }
 

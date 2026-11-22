@@ -654,6 +654,127 @@ export function createTreelineWallTexture(
   return tex;
 }
 
+/**
+ * Generates bespoke 360-degree circuit horizon panorama textures so Red Bull Ring, Monza,
+ * and Silverstone each render their real-world surrounding landscape instead of a shared wall.
+ */
+export function createCircuitHorizonWallTexture(
+  circuitId: 'red-bull-ring' | 'monza' | 'silverstone',
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 1024, 256);
+
+  if (circuitId === 'red-bull-ring') {
+    // Styrian Alps forested slopes: dense pointed spruce/larch timberline + alpine chalet roofs
+    const floorGrad = ctx.createLinearGradient(0, 148, 0, 256);
+    floorGrad.addColorStop(0, '#22492B');
+    floorGrad.addColorStop(1, '#142B1A');
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(0, 152, 1024, 104);
+
+    for (let i = 0; i < 160; i++) {
+      const x = (i / 160) * 1024;
+      const tierH = 54 + ((i * 41) % 86);
+      const col = i % 3 === 0 ? '#18361F' : i % 3 === 1 ? '#25502D' : '#326337';
+      ctx.fillStyle = col;
+      // Stepped conical spruce crown built with stacked rects & rounded tip (safe across mock/2D canvases)
+      for (let step = 0; step < 5; step++) {
+        const frac = step / 5;
+        const w = (1 - frac * 0.72) * (14 + ((i * 7) % 10));
+        const h = tierH * 0.24;
+        ctx.fillRect(x - w * 0.5, 210 - tierH * frac - h, w, h + 3);
+      }
+      ctx.beginPath();
+      ctx.arc(x, 210 - tierH, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Occasional warm Styrian wooden alpine chalet roof on hillside clearing
+      if (i % 19 === 6) {
+        ctx.fillStyle = '#E5D8C3';
+        ctx.fillRect(x - 10, 198, 20, 14);
+        ctx.fillStyle = '#8B3A2B';
+        ctx.fillRect(x - 12, 193, 24, 6);
+      }
+    }
+  } else if (circuitId === 'monza') {
+    // Parco di Monza: towering old-growth broadleaf & poplar woodland above historic stone park wall
+    const woodGrad = ctx.createLinearGradient(0, 82, 0, 224);
+    woodGrad.addColorStop(0, '#365629');
+    woodGrad.addColorStop(1, '#1D3318');
+    ctx.fillStyle = woodGrad;
+    ctx.fillRect(0, 92, 1024, 134);
+
+    for (let i = 0; i < 130; i++) {
+      const x = (i / 130) * 1024;
+      const crownY = 74 + ((i * 29) % 52);
+      const rad = 20 + ((i * 19) % 24);
+      ctx.fillStyle = i % 3 === 0 ? '#4A6931' : i % 3 === 1 ? '#2F4D24' : '#243D1C';
+      ctx.beginPath();
+      ctx.arc(x, crownY, rad, 0, Math.PI * 2);
+      ctx.fill();
+      if (i % 4 === 1) {
+        // Slender Lombardy poplar / Italian cypress spires piercing the woodland skyline
+        ctx.fillStyle = '#254223';
+        ctx.fillRect(x - 5, crownY - 46, 10, 56);
+        ctx.beginPath();
+        ctx.arc(x, crownY - 46, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Historic stone & brick Parco di Monza perimeter wall at canopy base
+    ctx.fillStyle = '#8F7E68';
+    ctx.fillRect(0, 224, 1024, 32);
+    ctx.fillStyle = '#6E5E4B';
+    ctx.fillRect(0, 224, 1024, 4);
+    ctx.fillRect(0, 242, 1024, 3);
+  } else {
+    // Silverstone: flat wide-open Northamptonshire RAF airfield plateau & agricultural fields (upper 74% open sky)
+    const fieldGrad = ctx.createLinearGradient(0, 206, 0, 256);
+    fieldGrad.addColorStop(0, '#4E6D3B');
+    fieldGrad.addColorStop(1, '#314928');
+    ctx.fillStyle = fieldGrad;
+    ctx.fillRect(0, 208, 1024, 48);
+
+    // Patchwork farmland strips (golden wheat, pasture & low dark hawthorn hedgerows)
+    const patchColors = ['#5B7A43', '#7E7F46', '#3F5D33', '#667E47'];
+    for (let i = 0; i < 24; i++) {
+      ctx.fillStyle = patchColors[i % patchColors.length];
+      ctx.fillRect(i * 44, 222, 42, 34);
+      // Low rounded hawthorn hedgerow clumps along field borders
+      ctx.fillStyle = '#2A4322';
+      ctx.beginPath();
+      ctx.arc(i * 44 + 12, 208, 7 + (i % 5), 0, Math.PI * 2);
+      ctx.arc(i * 44 + 28, 210, 6 + (i % 4), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Distant Northamptonshire wind turbines & white British GP glamping marquees
+    for (let i = 0; i < 9; i++) {
+      const tx = 58 + i * 114;
+      ctx.fillStyle = '#CBD5E1';
+      ctx.fillRect(tx - 1, 174, 2, 36);
+      ctx.fillStyle = '#E2E8F0';
+      ctx.fillRect(tx - 9, 173, 18, 2);
+      ctx.fillRect(tx - 1, 164, 2, 18);
+      if (i % 2 === 0) {
+        ctx.fillStyle = '#F8FAFC';
+        ctx.fillRect(tx + 24, 204, 18, 8);
+      }
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 /** Realistic dual-wheel rubbered braking-zone skid marks deposited before corner apexes. */
 export function createBrakingZoneSkidTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
