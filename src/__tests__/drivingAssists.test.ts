@@ -444,4 +444,66 @@ describe('Asphalt Driving Controls & Smart Driving Assists', () => {
     expect(steerOnlyCar.basActive).toBe(false);
     expect(steerOnlyCar.brakeApplied).toBe(0);
   });
+
+  it('default settings (steeringAssist=false, brakingAssist=true) auto-brake without hijacking steering', () => {
+    const dt = 1 / 60;
+    let tightIdx = 0;
+    let lowestRec = Infinity;
+    for (let i = 0; i < monza.samples.length; i++) {
+      if (monza.samples[i].recommendedSpeed < lowestRec) {
+        lowestRec = monza.samples[i].recommendedSpeed;
+        tightIdx = i;
+      }
+    }
+    const approachIdx = (tightIdx - 6 + monza.samples.length) % monza.samples.length;
+    const sApproach = monza.samples[approachIdx];
+
+    const makeCornerCar = () => {
+      const c = createInitialCarState('yahia', true, 1.0, monza, 0, 'soft', true);
+      c.s = sApproach.s;
+      c.sampleIndex = approachIdx;
+      c.x = sApproach.position.x + sApproach.right.x * 3.0;
+      c.y = sApproach.position.y;
+      c.z = sApproach.position.z + sApproach.right.z * 3.0;
+      c.heading = Math.atan2(sApproach.tangent.x, sApproach.tangent.z);
+      c.speed = 90;
+      return c;
+    };
+
+    const defaultBasOnly = makeCornerCar();
+    const easySteerOnly = makeCornerCar();
+
+    for (let i = 0; i < 20; i++) {
+      stepCarPhysics(
+        defaultBasOnly,
+        makeCtrl({ throttle: 1, steer: 0 }),
+        monza,
+        dt,
+        [defaultBasOnly],
+        { ...RAW_ASSISTS, steeringAssist: false, brakingAssist: true },
+        5,
+        true,
+      );
+      stepCarPhysics(
+        easySteerOnly,
+        makeCtrl({ throttle: 1, steer: 0 }),
+        monza,
+        dt,
+        [easySteerOnly],
+        { ...RAW_ASSISTS, steeringAssist: true, brakingAssist: false },
+        5,
+        true,
+      );
+    }
+
+    // BAS applies automatic corner braking while keeping player steerAngle strictly at zero
+    expect(defaultBasOnly.basActive).toBe(true);
+    expect(defaultBasOnly.brakeApplied).toBeGreaterThan(0.3);
+    expect(defaultBasOnly.steerAngle).toBe(0);
+
+    // Easy-Drive-only steers automatically into the bend while keeping BAS inactive
+    expect(easySteerOnly.basActive).toBe(false);
+    expect(easySteerOnly.brakeApplied).toBe(0);
+    expect(Math.abs(easySteerOnly.steerAngle)).toBeGreaterThan(0.02);
+  });
 });

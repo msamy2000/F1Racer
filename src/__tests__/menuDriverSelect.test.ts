@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ALL_DRIVERS } from '../data/teamsAndDrivers';
-import { F1_POINTS_TABLE, RaceManager, type RaceSettings } from '../engine/RaceManager';
+import { F1_POINTS_TABLE, RaceManager, type ChampionshipState, type RaceSettings } from '../engine/RaceManager';
 import { MenuUI } from '../ui/MenuUI';
 import { RaceHUD } from '../ui/RaceHUD';
 import type { PwaState } from '../ui/PwaManager';
@@ -88,14 +88,21 @@ function createMenuHarness() {
     isIosSafari: false,
   };
 
+  let muted = false;
   const showroomCalls: Array<{ driverId: string; teamId: string }> = [];
+  const launchedSessions: Array<{ settings: RaceSettings; championship: ChampionshipState | null }> = [];
   const menu = new MenuUI(root as unknown as HTMLElement, {
     onShowroomChanged(driverId, yahiaTeamId) {
       showroomCalls.push({ driverId, teamId: yahiaTeamId });
     },
-    onStartSession() {},
-    onToggleMute: () => false,
-    isMuted: () => false,
+    onStartSession(settings, championship) {
+      launchedSessions.push({ settings, championship });
+    },
+    onToggleMute: () => {
+      muted = !muted;
+      return muted;
+    },
+    isMuted: () => muted,
     getPwaState: () => pwaState,
     onToggleFullscreen: () => {},
     onRequestInstall: () => {},
@@ -128,6 +135,9 @@ function createMenuHarness() {
     menu,
     preloadedSrcs,
     showroomCalls,
+    launchedSessions,
+    getMuted: () => muted,
+    getActionEls: () => actionEls,
     findAction,
     findOpt,
     getCardImgSrc,
@@ -487,5 +497,148 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     hud.update(race);
     expect(pitBtn.classList.contains('active')).toBe(true);
     expect(pitBtn.textContent).toBe('BOX ●');
+  });
+
+  it('enforces Windows Chrome Inter/Segoe typography, CSS polish & clean World Tour title branding', async () => {
+    const fs = await loadFs();
+    const html = fs.readFileSync(new URL('../../index.html', import.meta.url), 'utf-8');
+    const css = fs.readFileSync(new URL('../ui/styles.css', import.meta.url), 'utf-8');
+
+    expect(html).toContain('family=Inter');
+    expect(html).toContain('JetBrains+Mono');
+    expect(html).not.toContain('Titillium+Web');
+    expect(html).toContain('<title>F1 2026 World Tour</title>');
+
+    expect(css).toContain("--font-display: 'Inter', 'Segoe UI'");
+    expect(css).toContain('-webkit-font-smoothing: antialiased');
+    expect(css).toContain('.touch-mini-pill.active');
+    expect(css).toContain('.country-flag-icon');
+  });
+
+  it('keeps home topbar free of personal names and wires podium celebration audio in main.ts', async () => {
+    const { menu, getHtml } = createMenuHarness();
+    menu.screen = 'home';
+    menu.show();
+    const homeHtml = getHtml();
+
+    const lockupStart = homeHtml.indexOf('<div class="brand-lockup">');
+    const lockupSnippet = homeHtml.slice(lockupStart, lockupStart + 240);
+    expect(lockupSnippet).toContain('F1 26');
+    expect(lockupSnippet).toContain('2026 World Tour');
+    expect(lockupSnippet).not.toContain('Yahia');
+    expect(lockupSnippet).not.toContain('Mariam');
+    menu.destroy();
+
+    const fs = await loadFs();
+    const mainSrc = fs.readFileSync(new URL('../main.ts', import.meta.url), 'utf-8');
+    const hudSrc = fs.readFileSync(new URL('../ui/RaceHUD.ts', import.meta.url), 'utf-8');
+    const podiumCalls = mainSrc.match(/audio\.playPodiumCelebration\(/g) ?? [];
+    expect(podiumCalls.length).toBeGreaterThanOrEqual(2);
+    expect(hudSrc).not.toContain('data-touch="reset"');
+    expect(hudSrc).not.toContain('this.callbacks.onTouchReset');
+  });
+
+  it('launches Grand Prix (with Qualifying), Championship, and Time Trial with accurate RaceSettings', () => {
+    const h = createMenuHarness();
+    h.menu.screen = 'home';
+    h.menu.show();
+
+    const clickModeAndGoSetup = (mode: string) => {
+      h.getActionEls().find((el) => el.dataset.action === 'go-mode' && el.dataset.mode === mode)?.click();
+      h.findAction('next-setup')?.click();
+    };
+
+    // 1. Grand Prix with 1-Lap Qualifying + Silverstone + Pro + Hard
+    clickModeAndGoSetup('grand-prix');
+    h.getActionEls().find((el) => el.dataset.action === 'pick-circuit' && el.dataset.circuit === 'silverstone')?.click();
+    h.findOpt('quali', 'true')?.click();
+    h.findOpt('difficulty', 'pro')?.click();
+    h.findOpt('tire', 'hard')?.click();
+    h.findAction('start-race')?.click();
+
+    expect(h.launchedSessions).toHaveLength(1);
+    expect(h.launchedSessions[0].settings).toMatchObject({
+      mode: 'grand-prix',
+      circuitId: 'silverstone',
+      qualifyingEnabled: true,
+      difficulty: 'pro',
+      startingTire: 'hard',
+      assists: { steeringAssist: false, brakingAssist: true },
+    });
+    expect(h.launchedSessions[0].championship).toBeNull();
+
+    // 2. Time Trial overrides laps=999, tire='soft', qualifying=false
+    h.menu.screen = 'home';
+    h.menu.show();
+    clickModeAndGoSetup('time-trial');
+    h.findAction('start-race')?.click();
+    expect(h.launchedSessions).toHaveLength(2);
+    expect(h.launchedSessions[1].settings).toMatchObject({
+      mode: 'time-trial',
+      laps: 999,
+      startingTire: 'soft',
+      qualifyingEnabled: false,
+    });
+
+    // 3. 4-Race World Tour Championship always opens at Round 1 ('red-bull-ring') with non-null ChampionshipState
+    h.menu.screen = 'home';
+    h.menu.show();
+    clickModeAndGoSetup('championship');
+    h.findAction('start-race')?.click();
+    expect(h.launchedSessions).toHaveLength(3);
+    expect(h.launchedSessions[2].settings.mode).toBe('championship');
+    expect(h.launchedSessions[2].settings.circuitId).toBe('red-bull-ring');
+    expect(h.launchedSessions[2].championship).not.toBeNull();
+
+    h.menu.destroy();
+  });
+
+  it('renders clean Time Trial results & Full 3D Stage without champagne text and synchronizes header mute', () => {
+    const h = createMenuHarness();
+    h.menu.screen = 'home';
+    h.menu.show();
+
+    expect(h.getHtml()).toContain('🔊 Audio On');
+    h.findAction('toggle-mute')?.click();
+    expect(h.getMuted()).toBe(true);
+    expect(h.getHtml()).toContain('🔇 Muted');
+
+    const ttRace = new RaceManager({
+      mode: 'time-trial',
+      circuitId: 'monza',
+      playerDriverId: 'yahia',
+      yahiaTeamId: 'mercedes',
+      laps: 999,
+      difficulty: 'medium',
+      startingTire: 'soft',
+      qualifyingEnabled: false,
+      assists: {
+        gearbox: 'auto',
+        tractionControl: 'full',
+        abs: true,
+        racingLine: 'full',
+        steeringAssist: false,
+        brakingAssist: true,
+      },
+    });
+    const pCar = ttRace.getPlayerCar();
+    pCar.completedLapTimesMs.push(69_200, 68_150);
+    pCar.bestLapMs = 68_150;
+
+    h.menu.showResults(ttRace.buildTimeTrialResults(), null, pCar.completedLapTimesMs, true);
+    const ttHtml = h.getHtml();
+    expect(ttHtml).toContain('TIME TRIAL SESSION COMPLETE');
+    expect(ttHtml).toContain('1:08.150');
+    expect(ttHtml).toContain('Full 3D Stage');
+    expect(ttHtml).not.toContain('📊');
+    expect(ttHtml).not.toContain('🎉');
+    expect(ttHtml).not.toContain('🥂');
+    expect(ttHtml).not.toContain('CHAMPAGNE');
+
+    h.findAction('toggle-podium-cinema')?.click();
+    expect(h.getHtml()).toContain('Official Classification');
+    expect(h.getHtml()).not.toContain('CHAMPAGNE');
+
+    h.menu.destroy();
   });
 });

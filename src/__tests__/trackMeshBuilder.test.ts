@@ -205,4 +205,69 @@ describe('TrackMeshBuilder — Ribbon Normals, Closed Seam & World Clearances', 
       silWorld.dispose();
     });
   });
+
+  it('isolates Las Vegas Strip night ecosystem & Exosphere from all daylight horizon walls', () => {
+    withMockCanvas(() => {
+      const vegasWorld = buildTrackWorld(new TrackSpline(CIRCUITS['las-vegas']));
+      expect(vegasWorld.vegasSphereMat).not.toBeNull();
+      expect(vegasWorld.group.getObjectByName('horizon-red-bull-ring')).toBeUndefined();
+      expect(vegasWorld.group.getObjectByName('horizon-monza')).toBeUndefined();
+      expect(vegasWorld.group.getObjectByName('horizon-silverstone')).toBeUndefined();
+      expect(vegasWorld.group.getObjectByName('alpine-mountain-range')).toBeUndefined();
+      vegasWorld.dispose();
+    });
+  });
+
+  it('preserves Styrian Alpine elevation (>35m) & chalet landmarks exclusively on Red Bull Ring', () => {
+    withMockCanvas(() => {
+      const rbrSpline = new TrackSpline(CIRCUITS['red-bull-ring']);
+      expect(rbrSpline.boundsMax.y - rbrSpline.boundsMin.y).toBeGreaterThan(35);
+
+      const rbrWorld = buildTrackWorld(rbrSpline);
+      expect(rbrWorld.vegasSphereMat).toBeNull();
+      expect(rbrWorld.group.getObjectByName('alpine-mountain-range')).toBeDefined();
+      expect(rbrWorld.group.getObjectByName('rbr-hillside-chalet')).toBeDefined();
+      expect(rbrWorld.group.getObjectByName('monza-park-wall')).toBeUndefined();
+      expect(rbrWorld.group.getObjectByName('silverstone-wing')).toBeUndefined();
+      rbrWorld.dispose();
+    });
+  });
+
+  it('preserves Monza Royal Park walls, historic bridges & Lombardy Prealps exclusively on Monza', () => {
+    withMockCanvas(() => {
+      const monzaWorld = buildTrackWorld(new TrackSpline(CIRCUITS.monza));
+      expect(monzaWorld.vegasSphereMat).toBeNull();
+      expect(monzaWorld.group.getObjectByName('lombardy-prealps-range')).toBeDefined();
+      expect(monzaWorld.group.getObjectByName('monza-park-wall')).toBeDefined();
+      expect(monzaWorld.group.getObjectByName('monza-park-bridge')).toBeDefined();
+      expect(monzaWorld.group.getObjectByName('rbr-hillside-chalet')).toBeUndefined();
+      expect(monzaWorld.group.getObjectByName('silverstone-wing')).toBeUndefined();
+      monzaWorld.dispose();
+    });
+  });
+
+  it('preserves flat British airfield elevation (<15m) & Wing/campsite/cranes exclusively on Silverstone', () => {
+    withMockCanvas(() => {
+      const silSpline = new TrackSpline(CIRCUITS.silverstone);
+      expect(silSpline.boundsMax.y - silSpline.boundsMin.y).toBeLessThan(15);
+
+      const silWorld = buildTrackWorld(silSpline);
+      expect(silWorld.vegasSphereMat).toBeNull();
+      expect(silWorld.group.getObjectByName('silverstone-wing')).toBeDefined();
+      expect(silWorld.group.getObjectByName('silverstone-campsite')).toBeDefined();
+      expect(silWorld.group.getObjectByName('silverstone-cranes')).toBeDefined();
+      expect(silWorld.group.getObjectByName('rbr-hillside-chalet')).toBeUndefined();
+      expect(silWorld.group.getObjectByName('monza-park-wall')).toBeUndefined();
+      silWorld.dispose();
+    });
+  });
+
+  it('disposes all 4 circuit track worlds cleanly without throwing', () => {
+    withMockCanvas(() => {
+      for (const cid of CIRCUIT_ORDER) {
+        const built = buildTrackWorld(new TrackSpline(CIRCUITS[cid]));
+        expect(() => built.dispose()).not.toThrow();
+      }
+    });
+  });
 });

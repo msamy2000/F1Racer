@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolveRadioClipKey } from '../audio/F1AudioEngine';
 import {
   ALL_DRIVERS,
   getDriverPortraitPath,
@@ -578,5 +579,210 @@ describe('RaceManager, 2026 Roster & Championship Scoring', () => {
     expect(hudRows[0].position).toBe(1);
     expect(hudRows[1].driver.id).toBe(player.driverId);
     expect(hudRows[1].position).toBe(2);
+  });
+
+  it('escalates 4-wheel track-limit cuts through Warning 1/3, 2/3, Black & White Flag 3/3, and +3s penalty with matching radio clips', () => {
+    const idle = {
+      throttle: 0.8,
+      brake: 0,
+      steer: 0,
+      boost: false,
+      shiftUpPressed: false,
+      shiftDownPressed: false,
+      cameraPressed: false,
+      pitPressed: false,
+      resetPressed: false,
+      pausePressed: false,
+    };
+
+    const runCutSequence = (mode: 'grand-prix' | 'time-trial') => {
+      const race = new RaceManager({
+        ...BASE_SETTINGS,
+        mode,
+        circuitId: 'monza',
+        laps: mode === 'time-trial' ? 999 : 5,
+      });
+      race.phase = 'racing';
+      const player = race.getPlayerCar();
+      const hw = race.track.config.trackWidth * 0.5;
+      const apex = race.track.samples.reduce((best, cur) =>
+        cur.curvature > best.curvature ? cur : best,
+      );
+
+      const radios: string[] = [];
+      for (let strike = 1; strike <= 4; strike++) {
+        player.cornerCutCooldown = 0;
+        player.cornerCutHoldTimer = 0;
+        for (let f = 0; f < 24; f++) {
+          player.s = apex.s;
+          player.prevS = apex.s;
+          player.sampleIndex = apex.index;
+          player.x = apex.position.x + apex.right.x * (hw + 2.4);
+          player.y = apex.position.y;
+          player.z = apex.position.z + apex.right.z * (hw + 2.4);
+          player.heading = Math.atan2(apex.tangent.x, apex.tangent.z);
+          player.speed = 48;
+          race.step(idle, 1 / 60);
+        }
+        radios.push(race.radio?.text ?? '');
+      }
+      return { player, radios };
+    };
+
+    const gp = runCutSequence('grand-prix');
+    expect(gp.radios[0]).toContain('Warning 1/3');
+    expect(resolveRadioClipKey(gp.radios[0])).toBe('track_warning');
+    expect(gp.radios[1]).toContain('Warning 2/3');
+    expect(resolveRadioClipKey(gp.radios[1])).toBe('track_warning');
+    expect(gp.radios[2]).toContain('Black & White Flag (3/3)');
+    expect(resolveRadioClipKey(gp.radios[2])).toBe('black_white_flag');
+    expect(gp.radios[3]).toContain('+3s penalty');
+    expect(resolveRadioClipKey(gp.radios[3])).toBe('track_penalty');
+    expect(gp.player.penaltySeconds).toBe(3);
+
+    const tt = runCutSequence('time-trial');
+    expect(tt.radios[3]).toContain('stay on track');
+    expect(resolveRadioClipKey(tt.radios[3])).toBe('track_penalty');
+    expect(tt.player.penaltySeconds).toBe(0);
+  });
+
+  it('completes a full pit stop lifecycle in RaceManager: arm BOX, pit limiter, servicing, fresh tires & compound swap', () => {
+    const race = new RaceManager({ ...BASE_SETTINGS, circuitId: 'red-bull-ring', laps: 5 });
+    race.phase = 'racing';
+    const player = race.getPlayerCar();
+
+    // Place player just ahead of pitEntryS with worn Soft tires and zero nearby AI interference
+    const entryS = (race.track.config.pitEntryS - 0.004 + 1) % 1;
+    const smp = race.track.sampleAtS(entryS);
+    player.lap = 2;
+    player.s = entryS;
+    player.prevS = entryS;
+    player.sampleIndex = smp.index;
+    player.x = smp.position.x + smp.right.x * 2.5;
+    player.y = smp.position.y;
+    player.z = smp.position.z + smp.right.z * 2.5;
+    player.heading = Math.atan2(smp.tangent.x, smp.tangent.z);
+    player.speed = 36;
+    player.tireWear = 0.78;
+    expect(player.tireCompound).toBe('soft');
+
+    for (const c of race.cars) {
+      if (c.isPlayer) continue;
+      const far = race.track.sampleAtS((entryS + 0.5) % 1);
+      c.s = far.s;
+      c.prevS = far.s;
+      c.x = far.position.x;
+      c.y = far.position.y;
+      c.z = far.position.z;
+    }
+
+    const baseCtrl = {
+      throttle: 0.7,
+      brake: 0,
+      steer: 0,
+      boost: false,
+      shiftUpPressed: false,
+      shiftDownPressed: false,
+      cameraPressed: false,
+      pitPressed: false,
+      resetPressed: false,
+      pausePressed: false,
+    };
+
+    // Trigger low-tire BOX radio cue + arm pitPressed on frame 0
+    race.step({ ...baseCtrl, pitPressed: true }, 1 / 60);
+    expect(player.pitRequested).toBe(true);
+    expect(resolveRadioClipKey(race.radio?.text)).toBe('box_this_lap');
+
+    let enteredPit = false;
+    let serviced = false;
+    let maxPitLaneSpeed = 0;
+
+    for (let i = 0; i < 1800; i++) {
+      race.step(baseCtrl, 1 / 60);
+      if (player.inPitLane) enteredPit = true;
+      if (player.pitServicing) serviced = true;
+      if (player.inPitLane && i > 120) {
+        maxPitLaneSpeed = Math.max(maxPitLaneSpeed, player.speed);
+      }
+      if (player.pitStopsCount === 1) break;
+    }
+
+    expect(enteredPit).toBe(true);
+    expect(serviced).toBe(true);
+    expect(maxPitLaneSpeed).toBeLessThanOrEqual(23.0); // <= ~80 km/h limiter once decelerated
+    expect(player.pitStopsCount).toBe(1);
+    expect(player.tireWear).toBe(0);
+    expect(player.tireCompound).toBe('medium');
+    expect(player.pitRequested).toBe(false);
+  });
+
+  it('completes 1-Lap Qualifying, builds 12-car starting grid, and transitions to countdown with qualifying_done radio', () => {
+    const race = new RaceManager({
+      ...BASE_SETTINGS,
+      mode: 'grand-prix',
+      circuitId: 'monza',
+      qualifyingEnabled: true,
+      laps: 3,
+    });
+    expect(race.phase).toBe('qualifying');
+    expect(race.cars).toHaveLength(1);
+
+    const player = race.getPlayerCar();
+    race.raceClockMs = 66_000;
+    const sStart = race.track.sampleAtS(0.996);
+    player.lap = 1;
+    player.s = 0.996;
+    player.prevS = 0.994;
+    player.currentLapStartMs = 0;
+    player.sampleIndex = sStart.index;
+    player.x = sStart.position.x;
+    player.y = sStart.position.y;
+    player.z = sStart.position.z;
+    player.heading = Math.atan2(sStart.tangent.x, sStart.tangent.z);
+    player.speed = 82;
+
+    for (let i = 0; i < 45; i++) {
+      race.step(
+        {
+          throttle: 1,
+          brake: 0,
+          steer: 0,
+          boost: false,
+          shiftUpPressed: false,
+          shiftDownPressed: false,
+          cameraPressed: false,
+          pitPressed: false,
+          resetPressed: false,
+          pausePressed: false,
+        },
+        1 / 60,
+      );
+      if (race.phase === 'countdown') break;
+    }
+
+    expect(race.phase).toBe('countdown');
+    expect(race.cars).toHaveLength(12);
+    expect(race.qualifyingLapMs).toBeGreaterThan(60_000);
+    expect(race.radio?.text).toContain('Qualifying complete');
+    expect(resolveRadioClipKey(race.radio?.text)).toBe('qualifying_done');
+  });
+
+  it('builds structured Time Trial results with summed lap totals and fastestLapBonus flag', () => {
+    const race = new RaceManager({ ...BASE_SETTINGS, mode: 'time-trial', laps: 999 });
+    const player = race.getPlayerCar();
+    player.completedLapTimesMs.push(71_200, 69_450);
+    player.bestLapMs = 69_450;
+
+    const ttResults = race.buildTimeTrialResults();
+    expect(ttResults).toHaveLength(1);
+    expect(ttResults[0]).toMatchObject({
+      position: 1,
+      isPlayer: true,
+      totalTimeMs: 140_650,
+      bestLapMs: 69_450,
+      penaltySeconds: 0,
+      fastestLapBonus: true,
+    });
   });
 });

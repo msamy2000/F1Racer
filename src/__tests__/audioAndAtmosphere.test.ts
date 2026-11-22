@@ -9,6 +9,7 @@ import {
 
 interface NodeFsSubset {
   existsSync(path: URL): boolean;
+  readFileSync(path: URL, encoding: 'utf-8'): string;
   statSync(path: URL): { size: number };
 }
 
@@ -325,5 +326,341 @@ describe('F1AudioEngine & SceneManager Atmosphere Calibration', () => {
     expect(audio.paused).toBe(false);
     expect(audio.playCalls).toBeGreaterThanOrEqual(1);
     expect(synthSpeakSpy).not.toHaveBeenCalled();
+  });
+
+  it('matches every fixed RaceManager.emitRadio() template cleanly via resolveRadioClipKey', () => {
+    const fixedTemplates: Array<[string, RadioClipKey]> = [
+      ['Lights sequence starting at Red Bull Ring. Watch the 5 red lights!', 'grid_start'],
+      ['Time Trial live at Autodromo Nazionale Monza. Push for Purple sectors!', 'time_trial'],
+      ['1-Lap Qualifying Shootout! Set your fastest lap to earn Pole Position!', 'qualifying_start'],
+      ['LIGHTS OUT AND AWAY WE GO!', 'lights_out'],
+      ['Track limits (all 4 wheels off) — Warning 1/3.', 'track_warning'],
+      ['Track limits (all 4 wheels off) — Warning 2/3.', 'track_warning'],
+      ['Black & White Flag (3/3)! Next full 4-wheel cut = +3s penalty.', 'black_white_flag'],
+      ['Track limits exceeded (all 4 wheels off) — +3s penalty applied!', 'track_penalty'],
+      ['Track limits exceeded (all 4 wheels off) — stay on track!', 'track_penalty'],
+      ['Rear tires dropping off — press P to Box this lap!', 'box_this_lap'],
+      ['Final lap! Push everything with Boost on the straights!', 'final_lap'],
+      ['Overtake Mode ARMED! +0.5 MJ reserve & full high-speed pull unlocked!', 'overtake_armed'],
+      ['Purple Sector 2! Fastest on track!', 'purple_sector'],
+      ['NEW PERSONAL BEST: 1:07.850! Ghost saved!', 'personal_best'],
+      ['Qualifying complete: P1 (1:05.980)! Ready for lights out!', 'qualifying_done'],
+      ['+3s time penalty applied — classified P2 (down from P1).', 'penalty_classified'],
+    ];
+
+    for (const [msg, key] of fixedTemplates) {
+      expect(resolveRadioClipKey(msg)).toBe(key);
+    }
+    expect(resolveRadioClipKey('Lap 2: 1:09.120 • Best: 1:08.420')).toBeNull();
+  });
+
+  it('fetches & caches neural radio MP3s, ducks engine gain, supersedes stale plays, and falls back to chirp on fetch errors', async () => {
+    const engineTargetCalls: Array<[number, number, number]> = [];
+    const startedSources: Array<{
+      started: boolean;
+      stopped: boolean;
+      onended: (() => void) | null;
+      buffer: unknown;
+    }> = [];
+    const createdOscTypes: Array<{ type: string; freqs: number[] }> = [];
+
+    class MockAudioContext {
+      currentTime = 1.0;
+      sampleRate = 48000;
+      state: 'running' | 'suspended' = 'running';
+      destination = {};
+
+      resume = vi.fn().mockResolvedValue(undefined);
+
+      private makeGainNode(isEngine = false) {
+        let gainValue = 1;
+        return {
+          gain: {
+            get value() {
+              return gainValue;
+            },
+            set value(v: number) {
+              gainValue = v;
+            },
+            setValueAtTime: vi.fn((v: number) => {
+              gainValue = v;
+            }),
+            linearRampToValueAtTime: vi.fn(),
+            exponentialRampToValueAtTime: vi.fn(),
+            setTargetAtTime: (target: number, startTime: number, tc: number) => {
+              if (isEngine) {
+                engineTargetCalls.push([target, startTime, tc]);
+              }
+            },
+          },
+          connect(dest: unknown) {
+            return dest;
+          },
+          disconnect: vi.fn(),
+        };
+      }
+
+      private gainCount = 0;
+
+      createGain() {
+        this.gainCount += 1;
+        // Gain order in F1AudioEngine.unlock(): 1 = masterGain, 2 = engineGain
+        return this.makeGainNode(this.gainCount === 2);
+      }
+
+      createDynamicsCompressor() {
+        return {
+          threshold: { value: 0 },
+          knee: { value: 0 },
+          ratio: { value: 0 },
+          attack: { value: 0 },
+          release: { value: 0 },
+          connect: (d: unknown) => d,
+        };
+      }
+
+      createBiquadFilter() {
+        return {
+          type: 'lowpass',
+          frequency: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+          Q: { value: 0, setValueAtTime: vi.fn() },
+          connect: (d: unknown) => d,
+        };
+      }
+
+      createOscillator() {
+        const oscRecord = { type: 'sine', freqs: [] as number[] };
+        createdOscTypes.push(oscRecord);
+        return {
+          get type() {
+            return oscRecord.type;
+          },
+          set type(t: string) {
+            oscRecord.type = t;
+          },
+          frequency: {
+            value: 0,
+            setValueAtTime: (f: number) => oscRecord.freqs.push(f),
+            exponentialRampToValueAtTime: (f: number) => oscRecord.freqs.push(f),
+          },
+          connect: (d: unknown) => d,
+          start: vi.fn(),
+          stop: vi.fn(),
+        };
+      }
+
+      createBuffer(_channels: number, length: number) {
+        return {
+          getChannelData: () => new Float32Array(length),
+        };
+      }
+
+      createBufferSource() {
+        const rec = {
+          buffer: null as unknown,
+          loop: false,
+          started: false,
+          stopped: false,
+          onended: null as (() => void) | null,
+          connect: (d: unknown) => d,
+          disconnect: vi.fn(),
+          start: () => {
+            rec.started = true;
+            startedSources.push(rec);
+          },
+          stop: () => {
+            rec.stopped = true;
+          },
+        };
+        return rec;
+      }
+
+      decodeAudioData = vi.fn(async (raw: ArrayBuffer) => ({ byteLength: raw.byteLength }));
+    }
+
+    vi.stubGlobal('window', { AudioContext: MockAudioContext });
+
+    const deferredFetch: {
+      resolve: ((res: { ok: boolean; arrayBuffer: () => Promise<ArrayBuffer> }) => void) | null;
+    } = { resolve: null };
+    let deferNextFetch = false;
+    const fetchedUrls: string[] = [];
+
+    vi.stubGlobal('fetch', (url: string) => {
+      fetchedUrls.push(url);
+      if (url.includes('rev_limiter') || url.includes('engine_') || url.includes('gearbox')) {
+        return Promise.resolve({ ok: false });
+      }
+      if (url.includes('box_this_lap')) {
+        return Promise.resolve({ ok: false });
+      }
+      if (deferNextFetch) {
+        deferNextFetch = false;
+        return new Promise((resolve) => {
+          deferredFetch.resolve = resolve;
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(128),
+      });
+    });
+
+    const engine = new F1AudioEngine();
+    engine.unlock();
+    engine.setEngineActive(true);
+    engineTargetCalls.length = 0;
+
+    // 1. Fixed callout fetches once, ducks engineGain to 0.58, plays decoded buffer, restores on onended
+    engine.playRadioChirp('LIGHTS OUT AND AWAY WE GO!', 'celebrate');
+    await vi.waitFor(() =>
+      expect(
+        startedSources.some((s) => Boolean((s.buffer as { byteLength?: number })?.byteLength)),
+      ).toBe(true),
+    );
+
+    expect(fetchedUrls.filter((u) => u.includes('radio/lights_out.mp3'))).toHaveLength(1);
+    expect(engineTargetCalls.some(([target]) => Math.abs(target - 0.58) < 0.001)).toBe(true);
+
+    const decodedSource = startedSources.find((s) =>
+      Boolean((s.buffer as { byteLength?: number })?.byteLength),
+    )!;
+    decodedSource.onended?.();
+    expect(engineTargetCalls.at(-1)?.[0]).toBe(1);
+
+    // 2. Second play of the same cue hits memory cache without re-fetching
+    engine.playRadioChirp('LIGHTS OUT AND AWAY WE GO!', 'celebrate');
+    expect(fetchedUrls.filter((u) => u.includes('radio/lights_out.mp3'))).toHaveLength(1);
+
+    // 3. Mute interrupts active decoded buffer source cleanly
+    const activeSource = startedSources.at(-1)!;
+    engine.setMuted(true);
+    expect(activeSource.stopped).toBe(true);
+
+    // 4. Mid-flight async superseding prevents stale first clip from playing
+    engine.setMuted(false);
+    deferNextFetch = true;
+    engine.playRadioChirp('Purple Sector 1!', 'celebrate');
+    engine.playRadioChirp('Final lap! Push everything with Boost on the straights!', 'celebrate');
+    await vi.waitFor(() =>
+      expect(fetchedUrls.some((u) => u.includes('radio/final_lap.mp3'))).toBe(true),
+    );
+    const sourcesBeforeLateResolve = startedSources.length;
+    deferredFetch.resolve?.({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(64),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(startedSources.length).toBe(sourcesBeforeLateResolve);
+
+    // 5. Failed MP3 fetch falls back cleanly to square-wave telemetry chirp
+    createdOscTypes.length = 0;
+    engine.playRadioChirp('Rear tires dropping off — press P to Box this lap!', 'alert');
+    await vi.waitFor(() =>
+      expect(createdOscTypes.some((o) => o.type === 'square' && o.freqs.includes(1460))).toBe(true),
+    );
+  });
+
+  it('plays brass victory fanfare + stadium crowd without any champagne cork-pop oscillator', () => {
+    installMockAudio();
+    const oscLog: Array<{ type: string; freqs: number[] }> = [];
+
+    class MockCtx {
+      currentTime = 0;
+      sampleRate = 48000;
+      state = 'running';
+      destination = {};
+      createGain = () => ({
+        gain: {
+          value: 1,
+          setValueAtTime: vi.fn(),
+          linearRampToValueAtTime: vi.fn(),
+          exponentialRampToValueAtTime: vi.fn(),
+          setTargetAtTime: vi.fn(),
+        },
+        connect: (d: unknown) => d,
+        disconnect: vi.fn(),
+      });
+      createDynamicsCompressor = () => ({
+        threshold: { value: 0 },
+        knee: { value: 0 },
+        ratio: { value: 0 },
+        attack: { value: 0 },
+        release: { value: 0 },
+        connect: (d: unknown) => d,
+      });
+      createBiquadFilter = () => ({
+        type: 'lowpass',
+        frequency: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        Q: { value: 0 },
+        connect: (d: unknown) => d,
+      });
+      createOscillator = () => {
+        const rec = { type: 'sine', freqs: [] as number[] };
+        oscLog.push(rec);
+        return {
+          get type() {
+            return rec.type;
+          },
+          set type(t: string) {
+            rec.type = t;
+          },
+          frequency: {
+            value: 0,
+            setValueAtTime: (f: number) => rec.freqs.push(f),
+            exponentialRampToValueAtTime: (f: number) => rec.freqs.push(f),
+          },
+          connect: (d: unknown) => d,
+          start: vi.fn(),
+          stop: vi.fn(),
+        };
+      };
+      createBuffer = (_c: number, len: number) => ({ getChannelData: () => new Float32Array(len) });
+      createBufferSource = () => ({
+        buffer: null,
+        loop: false,
+        connect: (d: unknown) => d,
+        start: vi.fn(),
+        stop: vi.fn(),
+      });
+    }
+
+    vi.stubGlobal('window', { AudioContext: MockCtx });
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false }));
+
+    const engine = new F1AudioEngine();
+    engine.unlock();
+    oscLog.length = 0; // ignore initial MGU-K sine oscillator from unlock()
+
+    engine.playPodiumCelebration(true);
+    const fanfareOscs = oscLog.filter((o) => o.type === 'sawtooth');
+    const popOscs = oscLog.filter(
+      (o) => o.type === 'sine' && (o.freqs.includes(240) || o.freqs.includes(680)),
+    );
+    expect(fanfareOscs).toHaveLength(6);
+    expect(popOscs).toHaveLength(0);
+  });
+
+  it('guarantees zero speechSynthesis usage in F1AudioEngine source and verifies all engine/music files on disk', async () => {
+    const fs = await loadFs();
+    const audioSrc = fs.readFileSync(new URL('../audio/F1AudioEngine.ts', import.meta.url), 'utf-8');
+    expect(audioSrc).not.toContain('speechSynthesis');
+    expect(audioSrc).not.toContain('SpeechSynthesisUtterance');
+
+    const baseAudioFiles = [
+      'engine_on_low.wav',
+      'engine_on_high.wav',
+      'engine_off_low.wav',
+      'engine_off_high.wav',
+      'gearbox_whine.wav',
+      'rev_limiter.wav',
+      'menu-theme.mp3',
+    ];
+    for (const filename of baseAudioFiles) {
+      const url = new URL(`../../public/assets/audio/${filename}`, import.meta.url);
+      expect(fs.existsSync(url)).toBe(true);
+      expect(fs.statSync(url).size).toBeGreaterThan(10_000);
+    }
   });
 });

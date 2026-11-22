@@ -8,6 +8,15 @@ import { buildF1CarMesh, buildGhostCarMesh } from '../rendering/CarMeshBuilder';
 import { EffectsManager } from '../rendering/EffectsManager';
 import { buildPodiumTrophyMesh, resolvePodiumDrivers } from '../rendering/SceneManager';
 
+interface NodeFsSubset {
+  readFileSync(path: URL, encoding: 'utf-8'): string;
+}
+
+const loadFs = async (): Promise<NodeFsSubset> => {
+  const modId = 'node:fs';
+  return (await import(/* @vite-ignore */ modId)) as NodeFsSubset;
+};
+
 function withMockCanvas<T>(fn: () => T): T {
   const prevDoc = (globalThis as { document?: unknown }).document;
   (globalThis as { document?: unknown }).document = {
@@ -259,5 +268,95 @@ describe('CarMeshBuilder & EffectsManager — 2026 Rig, Cockpit & Zero-GC Effect
         expect(trophy.children.length).toBe(7);
       });
     });
+  });
+
+  it('guards updateFromState against NaN/Infinity coordinates without corrupting visible car position', () => {
+    withMockCanvas(() => {
+      const rbr = new TrackSpline(CIRCUITS['red-bull-ring']);
+      const car = createInitialCarState('yahia', true, 1.0, rbr, 0, 'soft', false);
+      const rig = buildF1CarMesh(YAHIA_DRIVER, 'mercedes', car.tireCompound);
+      rig.updateFromState(car, 0.1);
+      const validX = rig.root.position.x;
+      const validY = rig.root.position.y;
+      const validZ = rig.root.position.z;
+
+      rig.updateFromState({ ...car, x: Number.NaN, y: Number.POSITIVE_INFINITY }, 0.2);
+      expect(rig.root.position.x).toBe(validX);
+      expect(rig.root.position.y).toBe(validY);
+      expect(rig.root.position.z).toBe(validZ);
+      rig.dispose();
+    });
+  });
+
+  it('ensures CarMeshBuilder isolates GLB geometries per car instance and disables frustumCulling', async () => {
+    const fs = await loadFs();
+    const builderSrc = fs.readFileSync(
+      new URL('../rendering/CarMeshBuilder.ts', import.meta.url),
+      'utf-8',
+    );
+    expect(builderSrc).toContain('obj.geometry = obj.geometry.clone()');
+    expect(builderSrc).toContain('obj.userData.sharedGlbGeometry = false');
+    expect(builderSrc).toContain('obj.frustumCulled = false');
+  });
+
+  it('builds translucent wireframe-free ghost car mesh cleanly with depthWrite disabled', () => {
+    withMockCanvas(() => {
+      const ghost = buildGhostCarMesh();
+      expect(ghost).toBeInstanceOf(THREE.Group);
+      expect(ghost.rotation.order).toBe('YXZ');
+      let meshCount = 0;
+      ghost.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          meshCount += 1;
+          const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+          expect((mat as THREE.Material).transparent).toBe(true);
+          expect((mat as THREE.Material).depthWrite).toBe(false);
+        }
+      });
+      expect(meshCount).toBeGreaterThan(0);
+    });
+  });
+
+  it('resolves 3 unique podium drivers across Time Trial, partial, and duplicate lineups', () => {
+    const single = resolvePodiumDrivers(YAHIA_DRIVER, [YAHIA_DRIVER]);
+    expect(single).toHaveLength(3);
+    expect(single[0].id).toBe(YAHIA_DRIVER.id);
+    expect(new Set(single.map((d) => d.id)).size).toBe(3);
+
+    const dup = resolvePodiumDrivers(YAHIA_DRIVER, [YAHIA_DRIVER, YAHIA_DRIVER, ALL_DRIVERS[1]]);
+    expect(dup).toHaveLength(3);
+    expect(new Set(dup.map((d) => d.id)).size).toBe(3);
+    expect(dup[1].id).toBe(ALL_DRIVERS[1].id);
+  });
+
+  it('builds Gold/Silver/Bronze metallic trophies with high-metalness physical materials', () => {
+    const cases: Array<['1' | '2' | '3', string]> = [
+      ['1', '#FFD700'],
+      ['2', '#CBD5E1'],
+      ['3', '#D97706'],
+    ];
+    for (const [rank, trim] of cases) {
+      const trophy = buildPodiumTrophyMesh(rank, trim);
+      expect(trophy.name).toBe(`podium-trophy-${rank}`);
+      expect(trophy.children).toHaveLength(7);
+      const metallicParts = trophy.children.filter((c) => {
+        if (!(c instanceof THREE.Mesh)) return false;
+        const m = c.material as THREE.MeshPhysicalMaterial;
+        return m instanceof THREE.MeshPhysicalMaterial && m.metalness >= 0.9;
+      });
+      expect(metallicParts.length).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it('keeps blocky 3D driver character builder and champagne spray removed from SceneManager', async () => {
+    const fs = await loadFs();
+    const sceneSrc = fs.readFileSync(
+      new URL('../rendering/SceneManager.ts', import.meta.url),
+      'utf-8',
+    );
+    expect(sceneSrc).not.toContain('buildPodiumDriverCharacter');
+    expect(sceneSrc).not.toContain('podiumCharacters');
+    expect(sceneSrc).not.toContain('podiumChampagneMesh');
+    expect(sceneSrc).not.toContain('podiumChampagneData');
   });
 });
