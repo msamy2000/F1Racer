@@ -17,6 +17,29 @@ const SAMPLE_URLS: Record<SampleKey, { url: string; baseRpm: number }> = {
   limiter: { url: './assets/audio/rev_limiter.wav', baseRpm: 8800 },
 };
 
+export type RadioTone = 'info' | 'alert' | 'celebrate';
+
+/**
+ * Normalizes HUD race-engineer radio strings into crisp, authentic F1 pit-wall speech
+ * so Web Speech Synthesis speaks lap times, symbols, and telemetry cleanly.
+ */
+export function formatRadioTextForSpeech(text: string): string {
+  return text
+    .replace(/--:--\.---/g, '')
+    .replace(/(\d+):(\d{2})\.(\d{2})\d?/g, (_m, min: string, sec: string, tenths: string) =>
+      min === '0' ? `${Number(sec)}.${tenths} seconds` : `${min}, ${sec}.${tenths}`,
+    )
+    .replace(/[•—]/g, ', ')
+    .replace(/&/g, ' and ')
+    .replace(/=/g, ' means ')
+    .replace(/\+(\d+(?:\.\d+)?)\s*MJ\b/gi, 'plus $1 megajoules')
+    .replace(/\+(\d+(?:\.\d+)?)\s*s\b/gi, 'plus $1 seconds')
+    .replace(/\b(\d+)\/(\d+)\b/g, '$1 of $2')
+    .replace(/\bP(\d+)\b/g, 'P $1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export class F1AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -48,6 +71,13 @@ export class F1AudioEngine {
   private menuAudio: HTMLAudioElement | null = null;
   private menuMusicWanted = false;
   private menuFadeTimer: ReturnType<typeof setInterval> | null = null;
+
+  // F1 Walkie-Talkie Race Engineer voice comms & carrier bed state
+  private radioDuckActive = false;
+  private radioStartTimer: ReturnType<typeof setTimeout> | null = null;
+  private radioStopTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeRadioNodes: { stop: (playRogerBeep?: boolean) => void } | null = null;
+  private cachedEngineerVoice: SpeechSynthesisVoice | null = null;
 
   muted = false;
   private initialized = false;
@@ -323,6 +353,9 @@ export class F1AudioEngine {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
+    if (muted) {
+      this.stopActiveRadio(false);
+    }
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.44, this.ctx.currentTime, 0.04);
     }
@@ -339,9 +372,12 @@ export class F1AudioEngine {
     this.active = active;
     if (active) {
       this.setMenuMusicActive(false);
+    } else {
+      this.stopActiveRadio(false);
     }
     if (this.engineGain && this.ctx) {
-      this.engineGain.gain.setTargetAtTime(active ? 1 : 0, this.ctx.currentTime, 0.08);
+      const targetEngineGain = active ? (this.radioDuckActive ? 0.56 : 1) : 0;
+      this.engineGain.gain.setTargetAtTime(targetEngineGain, this.ctx.currentTime, 0.08);
     }
   }
 
@@ -500,19 +536,328 @@ export class F1AudioEngine {
     osc.stop(now + dur + 0.02);
   }
 
-  playRadioChirp(): void {
+  private makeWalkieTalkieDriveCurve(amount = 14): Float32Array<ArrayBuffer> {
+    const samples = 256;
+    const curve = new Float32Array(new ArrayBuffer(samples * 4));
+    for (let i = 0; i < samples; i += 1) {
+      const x = (i * 2) / (samples - 1) - 1;
+      curve[i] = ((3 + amount) * x * 20 * (Math.PI / 180)) / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
+  }
+
+  private pickEngineerVoice(): SpeechSynthesisVoice | null {
+    if (this.cachedEngineerVoice) return this.cachedEngineerVoice;
+    const synth = globalThis.speechSynthesis;
+    if (!synth || typeof synth.getVoices !== 'function') return null;
+    let voices: SpeechSynthesisVoice[] = [];
+    try {
+      voices = synth.getVoices() ?? [];
+    } catch {
+      return null;
+    }
+    if (voices.length === 0) return null;
+
+    const preferredNames = [
+      'Daniel',
+      'Google UK English Male',
+      'Arthur',
+      'Oliver',
+      'Ryan',
+      'Reed',
+      'Alex',
+      'Fred',
+    ];
+    for (const pref of preferredNames) {
+      const found = voices.find((v) => v.name.toLowerCase().includes(pref.toLowerCase()));
+      if (found) {
+        this.cachedEngineerVoice = found;
+        return found;
+      }
+    }
+
+    const gbVoice =
+      voices.find((v) => /^en[-_]GB/i.test(v.lang)) ??
+      voices.find((v) => /^en/i.test(v.lang)) ??
+      voices[0] ??
+      null;
+    this.cachedEngineerVoice = gbVoice;
+    return gbVoice;
+  }
+
+  private playRogerBeepTail(): void {
     if (!this.initialized || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // 1. Classic F1 Pit-Wall PTT Mic-Release "Roger Beep" (1680 Hz -> 1220 Hz)
+    const osc = ctx.createOscillator();
+    const bp = ctx.createBiquadFilter();
+    const g = ctx.createGain();
     osc.type = 'square';
-    osc.frequency.setValueAtTime(1250, now);
-    osc.frequency.setValueAtTime(1680, now + 0.045);
-    g.gain.setValueAtTime(0.06, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-    osc.connect(g).connect(this.masterGain);
+    osc.frequency.setValueAtTime(1680, now);
+    osc.frequency.setValueAtTime(1220, now + 0.034);
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(1480, now);
+    bp.Q.setValueAtTime(2.6, now);
+    g.gain.setValueAtTime(0.052, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+    osc.connect(bp).connect(g).connect(this.masterGain);
     osc.start(now);
-    osc.stop(now + 0.11);
+    osc.stop(now + 0.08);
+
+    // 2. Short VHF walkie-talkie squelch tail click (65 ms narrowband static burst)
+    if (this.sharedNoiseBuf) {
+      const tailSrc = ctx.createBufferSource();
+      tailSrc.buffer = this.sharedNoiseBuf;
+      tailSrc.loop = true;
+      const tailBp = ctx.createBiquadFilter();
+      tailBp.type = 'bandpass';
+      tailBp.frequency.setValueAtTime(1550, now);
+      tailBp.Q.setValueAtTime(2.1, now);
+      const tailGain = ctx.createGain();
+      tailGain.gain.setValueAtTime(0.068, now + 0.015);
+      tailGain.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
+      tailSrc.connect(tailBp).connect(tailGain).connect(this.masterGain);
+      tailSrc.start(now + 0.015);
+      tailSrc.stop(now + 0.09);
+    }
+  }
+
+  private stopActiveRadio(playRogerBeep = false): void {
+    if (this.radioStartTimer !== null) {
+      globalThis.clearTimeout(this.radioStartTimer);
+      this.radioStartTimer = null;
+    }
+    if (this.radioStopTimer !== null) {
+      globalThis.clearTimeout(this.radioStopTimer);
+      this.radioStopTimer = null;
+    }
+    if (this.activeRadioNodes) {
+      const nodes = this.activeRadioNodes;
+      this.activeRadioNodes = null;
+      nodes.stop(playRogerBeep);
+    } else if (playRogerBeep) {
+      this.playRogerBeepTail();
+    }
+    try {
+      globalThis.speechSynthesis?.cancel?.();
+    } catch {
+      // Ignore environments without speechSynthesis
+    }
+    if (this.radioDuckActive) {
+      this.radioDuckActive = false;
+      if (this.engineGain && this.ctx) {
+        this.engineGain.gain.setTargetAtTime(this.active ? 1 : 0, this.ctx.currentTime, 0.09);
+      }
+    }
+  }
+
+  /**
+   * Plays an authentic F1 pit-wall walkie-talkie radio transmission:
+   * 1. PTT opening squelch burst + dual-tone F1 telemetry chirp
+   * 2. Spoken Race Engineer voice message (`window.speechSynthesis`) layered over a
+   *    band-limited VHF walkie-talkie carrier static + clipped transceiver resonance bed
+   *    while ducking engine volume so the engineer cuts cleanly through the engine roar
+   * 3. PTT mic-release roger beep & squelch tail on completion
+   */
+  playRadioChirp(text?: string, tone: RadioTone = 'info'): void {
+    if (this.muted) return;
+
+    const spokenText = text ? formatRadioTextForSpeech(text) : '';
+    const hasSpeechText = spokenText.length > 0;
+    const canSpeak =
+      hasSpeechText &&
+      typeof globalThis.speechSynthesis !== 'undefined' &&
+      typeof globalThis.SpeechSynthesisUtterance !== 'undefined';
+
+    // Cancel any previous walkie-talkie transmission before keying the mic
+    this.stopActiveRadio(false);
+
+    const estSpeechDurSec = hasSpeechText
+      ? Math.max(1.15, Math.min(4.6, spokenText.length * 0.062))
+      : 0;
+
+    if (this.initialized && this.ctx && this.masterGain) {
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // Duck engine audio slightly while the race engineer is speaking on the radio
+      if (hasSpeechText && this.engineGain && this.active) {
+        this.radioDuckActive = true;
+        this.engineGain.gain.setTargetAtTime(0.56, now, 0.05);
+      }
+
+      // 1. PTT Key-In Squelch Click + Dual-Tone F1 Pit-Wall Telemetry Chirp
+      const chirpOsc = ctx.createOscillator();
+      const chirpFilter = ctx.createBiquadFilter();
+      const chirpGain = ctx.createGain();
+      chirpOsc.type = 'square';
+      const f1 = tone === 'alert' ? 1460 : tone === 'celebrate' ? 1360 : 1280;
+      const f2 = tone === 'alert' ? 1960 : tone === 'celebrate' ? 1820 : 1720;
+      chirpOsc.frequency.setValueAtTime(f1, now);
+      chirpOsc.frequency.setValueAtTime(f2, now + 0.045);
+      chirpFilter.type = 'bandpass';
+      chirpFilter.frequency.setValueAtTime(1600, now);
+      chirpFilter.Q.setValueAtTime(2.2, now);
+      chirpGain.gain.setValueAtTime(0.064, now);
+      chirpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.105);
+      chirpOsc.connect(chirpFilter).connect(chirpGain).connect(this.masterGain);
+      chirpOsc.start(now);
+      chirpOsc.stop(now + 0.11);
+
+      if (this.sharedNoiseBuf) {
+        const pttClick = ctx.createBufferSource();
+        pttClick.buffer = this.sharedNoiseBuf;
+        const pttBp = ctx.createBiquadFilter();
+        pttBp.type = 'bandpass';
+        pttBp.frequency.setValueAtTime(1750, now);
+        pttBp.Q.setValueAtTime(2.4, now);
+        const pttGain = ctx.createGain();
+        pttGain.gain.setValueAtTime(0.075, now);
+        pttGain.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
+        pttClick.connect(pttBp).connect(pttGain).connect(this.masterGain);
+        pttClick.start(now);
+        pttClick.stop(now + 0.06);
+      }
+
+      // 2. Continuous Walkie-Talkie VHF Carrier Static & Clipped Comms Resonance Bed
+      if (hasSpeechText && this.sharedNoiseBuf) {
+        const carrierSrc = ctx.createBufferSource();
+        carrierSrc.buffer = this.sharedNoiseBuf;
+        carrierSrc.loop = true;
+
+        // Subtle syllabic walkie-talkie speaker formant modulation (gives spoken voice a radio-box texture)
+        const formantOsc = ctx.createOscillator();
+        formantOsc.type = 'sawtooth';
+        formantOsc.frequency.setValueAtTime(tone === 'alert' ? 178 : 158, now);
+        const formantGain = ctx.createGain();
+        formantGain.gain.setValueAtTime(0.009, now);
+
+        // Syllabic envelope pulse across words so the walkie-talkie speaker breathes with the speech
+        const wordCount = Math.max(3, spokenText.split(/\s+/).length);
+        const syllableStep = estSpeechDurSec / (wordCount * 2.1);
+        for (let s = 0; s < wordCount * 2; s += 1) {
+          const t = now + 0.09 + s * syllableStep;
+          const pulse = s % 2 === 0 ? 0.013 : 0.004;
+          formantGain.gain.setValueAtTime(pulse, t);
+        }
+
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.setValueAtTime(580, now);
+
+        const midPeak = ctx.createBiquadFilter();
+        midPeak.type = 'peaking';
+        midPeak.frequency.setValueAtTime(1420, now);
+        midPeak.Q.setValueAtTime(1.8, now);
+        midPeak.gain.setValueAtTime(9.5, now);
+
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(2550, now);
+
+        const shaper = ctx.createWaveShaper();
+        shaper.curve = this.makeWalkieTalkieDriveCurve(14);
+        shaper.oversample = '2x';
+
+        const bedGain = ctx.createGain();
+        bedGain.gain.setValueAtTime(0.001, now);
+        bedGain.gain.linearRampToValueAtTime(0.034, now + 0.08);
+
+        carrierSrc.connect(hp);
+        formantOsc.connect(formantGain).connect(hp);
+        hp.connect(midPeak).connect(lp).connect(shaper).connect(bedGain).connect(this.masterGain);
+
+        carrierSrc.start(now + 0.05);
+        formantOsc.start(now + 0.08);
+
+        let stopped = false;
+        this.activeRadioNodes = {
+          stop: (playRoger = false) => {
+            if (stopped) return;
+            stopped = true;
+            const stopAt = ctx.currentTime;
+            try {
+              bedGain.gain.setValueAtTime(0.0001, stopAt);
+              carrierSrc.stop(stopAt + 0.01);
+              formantOsc.stop(stopAt + 0.01);
+            } catch {
+              // Ignore already-stopped nodes
+            }
+            if (playRoger) {
+              this.playRogerBeepTail();
+            }
+          },
+        };
+      }
+    }
+
+    // 3. Spoken Race Engineer Voice via Web Speech API
+    if (canSpeak) {
+      const synth = globalThis.speechSynthesis;
+      const utterance = new globalThis.SpeechSynthesisUtterance(spokenText);
+      utterance.lang = 'en-GB';
+      const voice = this.pickEngineerVoice();
+      if (voice) {
+        utterance.voice = voice;
+      }
+      // Urgent, clipped F1 pit-wall race engineer prosody
+      utterance.rate = tone === 'alert' ? 1.18 : tone === 'celebrate' ? 1.15 : 1.12;
+      utterance.pitch = tone === 'alert' ? 0.96 : tone === 'celebrate' ? 1.02 : 0.91;
+      utterance.volume = 0.96;
+
+      let finished = false;
+      const finishTransmission = () => {
+        if (finished) return;
+        finished = true;
+        if (this.radioStopTimer !== null) {
+          globalThis.clearTimeout(this.radioStopTimer);
+          this.radioStopTimer = null;
+        }
+        if (this.activeRadioNodes) {
+          const nodes = this.activeRadioNodes;
+          this.activeRadioNodes = null;
+          nodes.stop(true);
+        } else {
+          this.playRogerBeepTail();
+        }
+        if (this.radioDuckActive) {
+          this.radioDuckActive = false;
+          if (this.engineGain && this.ctx) {
+            this.engineGain.gain.setTargetAtTime(this.active ? 1 : 0, this.ctx.currentTime, 0.09);
+          }
+        }
+      };
+
+      utterance.onend = finishTransmission;
+      utterance.onerror = finishTransmission;
+
+      // Key speech 85ms after the opening PTT dual-tone telemetry chirp
+      this.radioStartTimer = globalThis.setTimeout(() => {
+        this.radioStartTimer = null;
+        if (this.muted) {
+          finishTransmission();
+          return;
+        }
+        try {
+          synth.speak(utterance);
+        } catch {
+          finishTransmission();
+        }
+      }, 85);
+
+      // Safety fallback timeout in case a mobile browser doesn't fire utterance.onend
+      this.radioStopTimer = globalThis.setTimeout(
+        finishTransmission,
+        Math.round(estSpeechDurSec * 1000) + 650,
+      );
+    } else if (hasSpeechText && this.activeRadioNodes) {
+      // Fallback if Web Speech API is unavailable: close carrier bed with roger beep after estimated duration
+      this.radioStopTimer = globalThis.setTimeout(() => {
+        this.stopActiveRadio(true);
+      }, Math.round(estSpeechDurSec * 1000));
+    }
   }
 
   /** Triumphant F1 Podium Fanfare + Champagne Cork Pop + Stadium Crowd Swell. */

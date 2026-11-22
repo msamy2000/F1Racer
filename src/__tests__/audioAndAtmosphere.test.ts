@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { F1AudioEngine } from '../audio/F1AudioEngine';
+import { F1AudioEngine, formatRadioTextForSpeech } from '../audio/F1AudioEngine';
 import {
   compressHdrTextureRadiance,
   HDRI_FILES,
@@ -256,5 +256,91 @@ describe('F1AudioEngine & SceneManager Atmosphere Calibration', () => {
       const hdrUrl = new URL(`../../public/assets/hdri/${filename}`, import.meta.url);
       expect(fs.existsSync(hdrUrl)).toBe(true);
     }
+  });
+
+  it('normalizes race engineer radio messages into natural F1 pit-wall walkie-talkie speech', () => {
+    expect(formatRadioTextForSpeech('Lap 1: 1:08.420 • Best: 1:07.910')).toBe(
+      'Lap 1: 1, 08.42 , Best: 1, 07.91',
+    );
+    expect(
+      formatRadioTextForSpeech('Black & White Flag (3/3)! Next full 4-wheel cut = +3s penalty.'),
+    ).toBe('Black and White Flag (3 of 3)! Next full 4-wheel cut means plus 3 seconds penalty.');
+    expect(
+      formatRadioTextForSpeech(
+        'Overtake Mode ARMED! +0.5 MJ reserve & full high-speed pull unlocked!',
+      ),
+    ).toBe('Overtake Mode ARMED! plus 0.5 megajoules reserve and full high-speed pull unlocked!');
+    expect(
+      formatRadioTextForSpeech('+3s time penalty applied — classified P2 (down from P1).'),
+    ).toBe('plus 3 seconds time penalty applied , classified P 2 (down from P 1).');
+  });
+
+  it('speaks engineer messages in a walkie-talkie prosody and cancels speech on mute or engine stop', () => {
+    vi.useFakeTimers();
+
+    const spokenUtterances: Array<{
+      text: string;
+      rate: number;
+      pitch: number;
+      lang: string;
+      onend: (() => void) | null;
+    }> = [];
+    let cancelCalls = 0;
+
+    class MockUtterance {
+      text: string;
+      lang = 'en-US';
+      rate = 1;
+      pitch = 1;
+      volume = 1;
+      voice: unknown = null;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+
+    vi.stubGlobal('SpeechSynthesisUtterance', MockUtterance);
+    vi.stubGlobal('speechSynthesis', {
+      getVoices: () => [{ name: 'Daniel', lang: 'en-GB' }],
+      speak: (u: MockUtterance) => {
+        spokenUtterances.push(u);
+      },
+      cancel: () => {
+        cancelCalls += 1;
+      },
+    });
+
+    const engine = new F1AudioEngine();
+    engine.playRadioChirp('Track limits (all 4 wheels off) — Warning 1/3.', 'alert');
+
+    // Speech keys 85ms after the opening PTT dual-tone chirp
+    vi.advanceTimersByTime(100);
+    expect(spokenUtterances).toHaveLength(1);
+    expect(spokenUtterances[0].text).toBe('Track limits (all 4 wheels off) , Warning 1 of 3.');
+    expect(spokenUtterances[0].lang).toBe('en-GB');
+    expect(spokenUtterances[0].rate).toBeCloseTo(1.18, 2);
+    expect(spokenUtterances[0].pitch).toBeCloseTo(0.96, 2);
+
+    // Muting immediately cancels active walkie-talkie speech and blocks new speech
+    const cancelsBeforeMute = cancelCalls;
+    engine.setMuted(true);
+    expect(cancelCalls).toBeGreaterThan(cancelsBeforeMute);
+
+    engine.playRadioChirp('Final lap! Push everything with Boost on the straights!', 'info');
+    vi.advanceTimersByTime(150);
+    expect(spokenUtterances).toHaveLength(1);
+
+    // Unmuting and stopping engine also cancels active transmission
+    engine.setMuted(false);
+    engine.playRadioChirp('LIGHTS OUT AND AWAY WE GO!', 'celebrate');
+    vi.advanceTimersByTime(100);
+    expect(spokenUtterances).toHaveLength(2);
+    expect(spokenUtterances[1].rate).toBeCloseTo(1.15, 2);
+
+    const cancelsBeforeStop = cancelCalls;
+    engine.setEngineActive(false);
+    expect(cancelCalls).toBeGreaterThan(cancelsBeforeStop);
   });
 });

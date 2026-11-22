@@ -217,7 +217,7 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     const fs = await loadFs();
     const sw = fs.readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf-8');
     expect(sw).toMatch(/f1-2026-world-tour-v\d+/);
-    expect(sw).toContain('f1-2026-world-tour-v8');
+    expect(sw).toContain('f1-2026-world-tour-v9');
     for (const name of [
       'yahia-mercedes.png',
       'yahia-redbull.png',

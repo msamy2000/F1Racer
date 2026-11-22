@@ -136,6 +136,9 @@ async function startSession(settings: RaceSettings, champ: ChampionshipState | n
     audio.setEngineActive(true);
     menuUI.hide();
     hud.show(race, sceneManager.cameraRig.mode, audio.muted);
+    if (race.radio) {
+      audio.playRadioChirp(race.radio.text, race.radio.tone);
+    }
   } finally {
     startingSession = false;
   }
@@ -361,7 +364,7 @@ function animate(nowMs: number): void {
       if (audioEvents.lightsOutGo) audio.playStartLightBeep(true);
       if (audioEvents.gearChanged) audio.playGearShift();
       if (audioEvents.kerbHit) audio.playKerbThud();
-      if (audioEvents.radioChirp) audio.playRadioChirp();
+      if (audioEvents.radioChirp) audio.playRadioChirp(race.radio?.text, race.radio?.tone);
 
       // Consume edge triggers after first physics substep
       ctrl.shiftUpPressed = false;
