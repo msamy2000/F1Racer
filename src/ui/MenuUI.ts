@@ -25,6 +25,7 @@ import {
 } from '../engine/RaceManager';
 
 import type { PwaState } from './PwaManager';
+import { renderFlagSvg } from './flagIcons';
 
 export type MenuScreen = 'home' | 'driver' | 'setup' | 'results';
 
@@ -83,7 +84,7 @@ export class MenuUI {
     tractionControl: 'full',
     abs: true,
     racingLine: 'full',
-    steeringAssist: true,
+    steeringAssist: false,
     brakingAssist: true,
   };
 
@@ -218,7 +219,7 @@ export class MenuUI {
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <span class="brand-sub topbar-driver-chip" style="color:#fff;font-weight:700;">
-              ${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}
+              ${renderFlagSvg(selectedDriver.flag)} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}
             </span>
             <button class="btn-secondary mobile-pwa-btn ${showInstall ? '' : 'hidden'}" data-action="pwa-install">📲 App</button>
             <button class="btn-secondary mobile-pwa-btn ${pwa.canToggleFullscreen ? '' : 'hidden'}" data-action="toggle-fullscreen">${pwa.isFullscreen ? '✕ Exit' : '⛶ Full'}</button>
@@ -338,7 +339,7 @@ export class MenuUI {
                  style="width:74px;height:74px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,0.2);" />
             <div>
               <div style="font-size:11px;color:var(--cyan-tech);font-weight:700;letter-spacing:0.08em;">3D SHOWROOM ACTIVE</div>
-              <div style="font-size:19px;font-weight:800;">${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name}</div>
+              <div style="font-size:19px;font-weight:800;">${renderFlagSvg(selectedDriver.flag)} #${selectedDriver.number} ${selectedDriver.name}</div>
               <div style="font-size:13px;color:var(--text-muted);">${selectedTeam.name}</div>
             </div>
           </div>
@@ -397,7 +398,7 @@ export class MenuUI {
                 </span>
               </div>
               <div class="hero-driver-name" style="font-size:22px;font-weight:800;margin-top:2px;">
-                ${driver.flag} #${driver.number} ${driver.name} <span style="font-size:13px;font-weight:600;color:var(--text-muted);">(${driver.code})</span>
+                ${renderFlagSvg(driver.flag)} #${driver.number} ${driver.name} <span style="font-size:13px;font-weight:600;color:var(--text-muted);">(${driver.code})</span>
               </div>
               <div class="hero-driver-desc" style="font-size:12px;color:var(--text-muted);">
                 Sign with Mercedes, Red Bull, or McLaren — suit, 3D helmet &amp; car livery update live!
@@ -443,7 +444,7 @@ export class MenuUI {
                     ${isSel ? '● SELECTED' : 'SELECT'}
                   </span>
                 </div>
-                <div style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${d.flag} ${d.name}</div>
+                <div style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${renderFlagSvg(d.flag)} ${d.name}</div>
                 <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">
                   2026: P${d.standing2026} • ${d.points2026} pts • ${d.wins2026}W
                 </div>
@@ -463,7 +464,7 @@ export class MenuUI {
     return `
       <div class="section-header">
         <div>
-          <div class="brand-sub">Step 1 of 2 • Selected: ${selectedDriver.flag} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}</div>
+          <div class="brand-sub">Step 1 of 2 • Selected: ${renderFlagSvg(selectedDriver.flag)} #${selectedDriver.number} ${selectedDriver.name} • ${selectedTeam.shortName}</div>
           <div class="section-title">Select Your Driver</div>
         </div>
         <div style="display:flex;gap:10px;">
@@ -495,7 +496,7 @@ export class MenuUI {
              ${isChamp ? '' : `data-action="pick-circuit" data-circuit="${cid}"`}
              style="${isChamp ? 'cursor:default;opacity:0.92;' : ''}">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.flag} ${c.name}</span>
+            <span style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${renderFlagSvg(c.flag)} ${c.name}</span>
             <span style="font-size:11px;font-weight:800;white-space:nowrap;flex-shrink:0;color:${c.atmosphere === 'vegas-night' ? '#00E5FF' : '#98a3b8'};">
               ${c.atmosphere === 'vegas-night' ? '🌙 NIGHT RACE' : `ROUND ${idx + 1}`}
             </span>
@@ -636,7 +637,7 @@ export class MenuUI {
             </div>
             <img src="${portrait}" alt="${entry.driver.name}"
                  style="width:${entry.position === 1 ? 140 : 116}px;height:${entry.position === 1 ? 140 : 116}px;border-radius:14px;object-fit:cover;margin:0 auto 8px;display:block;border:3px solid ${entry.position === 1 ? '#FFD700' : team.primaryColor};box-shadow:0 8px 24px rgba(0,0,0,0.45);" />
-            <div style="font-size:${entry.position === 1 ? 20 : 17}px;font-weight:700;">${entry.driver.flag} ${entry.driver.name}</div>
+            <div style="font-size:${entry.position === 1 ? 20 : 17}px;font-weight:700;">${renderFlagSvg(entry.driver.flag)} ${entry.driver.name}</div>
             <div style="font-size:12px;color:var(--text-muted);">${team.shortName} • +${entry.pointsAwarded} pts</div>
             <div style="font-size:11px;font-family:var(--font-mono);color:#e2e8f0;margin-top:3px;">
               ${raceTimeLabel} • Best ${formatLapTime(entry.bestLapMs)}${podiumPenHtml}
@@ -716,7 +717,7 @@ export class MenuUI {
         return `
           <tr style="${r.isPlayer ? 'background:rgba(225,6,0,0.18);font-weight:700;' : ''}">
             <td>P${r.position}</td>
-            <td><span style="display:inline-block;width:4px;height:12px;background:${team.primaryColor};margin-right:6px;"></span>${r.driver.flag} ${r.driver.name}</td>
+            <td><span style="display:inline-block;width:4px;height:12px;background:${team.primaryColor};margin-right:6px;"></span>${renderFlagSvg(r.driver.flag)} ${r.driver.name}</td>
             <td class="col-constructor">${team.shortName}</td>
             <td style="font-family:var(--font-mono);">${r.position === 1 ? formatLapTime(r.totalTimeMs) : `+${(r.gapMs / 1000).toFixed(2)}s`}</td>
             <td style="font-family:var(--font-mono);${r.fastestLapBonus ? 'color:#e879f9;font-weight:700;' : ''}">
@@ -759,7 +760,7 @@ export class MenuUI {
               .map(
                 (s, i) => `
               <div style="background:rgba(255,255,255,0.05);padding:6px 9px;border-radius:6px;display:flex;justify-content:space-between;">
-                <span>${i + 1}. ${s.driver.flag} ${s.driver.code}</span>
+                <span>${i + 1}. ${renderFlagSvg(s.driver.flag)} ${s.driver.code}</span>
                 <strong>${s.pts} pts (${s.wins}W)</strong>
               </div>`,
               )

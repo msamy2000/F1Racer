@@ -8,6 +8,18 @@ import type { PwaState } from './PwaManager';
 
 export type MobileSteerMode = 'buttons' | 'wheel';
 
+const MOBILE_CAMERA_SHORT_LABELS: Record<CameraMode, string> = {
+  'tv-pod': 'T-CAM',
+  chase: 'CHASE',
+  cockpit: 'HALO',
+};
+
+const CAM_ICON_SVG =
+  '<svg class="hud-btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+
+const PAUSE_ICON_SVG =
+  '<svg class="hud-btn-icon" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+
 const STORAGE_MOBILE_STEER_MODE_KEY = 'f1_2026_mobile_steer_mode';
 
 function loadMobileSteerMode(): MobileSteerMode {
@@ -37,7 +49,7 @@ export interface RaceHUDCallbacks {
   onTouchBrake(active: boolean): void;
   onTouchBoost(active: boolean): void;
   onTouchPit(): void;
-  onTouchReset(): void;
+  onTouchReset?: () => void;
   onSetAutoGas(enabled: boolean): void;
   onToggleFullscreen?(): void;
   getPwaState?(): PwaState;
@@ -88,6 +100,7 @@ export class RaceHUD {
   private lastPwaState: PwaState | null = null;
   private lastShownRace: RaceManager | null = null;
   private touchLayerEl!: HTMLElement;
+  private touchPitBtnEl!: HTMLElement;
   private touchBrakeBtnEl!: HTMLElement;
   private touchBoostBtnEl!: HTMLElement;
   private touchBoostPctEl!: HTMLElement;
@@ -110,6 +123,7 @@ export class RaceHUD {
   private pauseModalEl!: HTMLElement;
   private mobileMode = false;
   private touchControlsEnabled = false;
+  private lastCameraMode: CameraMode = 'tv-pod';
 
   private minimapCanvas!: HTMLCanvasElement;
   private minimapCtx!: CanvasRenderingContext2D;
@@ -167,7 +181,8 @@ export class RaceHUD {
     if (!this.builtDom) return;
     this.touchLayerEl.classList.toggle('hidden', !this.touchControlsEnabled);
     this.touchToggleBtnEl.classList.toggle('active', this.touchControlsEnabled);
-    this.pauseBtnEl.textContent = this.mobileMode ? '⏸' : '⏸ Esc';
+    this.pauseBtnEl.innerHTML = this.mobileMode ? PAUSE_ICON_SVG : `${PAUSE_ICON_SVG}<span>Esc</span>`;
+    this.setCameraLabel(this.lastCameraMode);
     this.callbacks.onSetAutoGas(this.touchControlsEnabled);
     if (!this.touchControlsEnabled) {
       this.steerLeftBtnEl.classList.remove('pressed');
@@ -250,8 +265,10 @@ export class RaceHUD {
   }
 
   setCameraLabel(mode: CameraMode): void {
+    this.lastCameraMode = mode;
     if (this.cameraLabelEl) {
-      this.cameraLabelEl.textContent = this.mobileMode ? '📷' : `📷 ${CAMERA_LABELS[mode]}`;
+      const label = this.mobileMode ? MOBILE_CAMERA_SHORT_LABELS[mode] : CAMERA_LABELS[mode];
+      this.cameraLabelEl.innerHTML = `${CAM_ICON_SVG}<span>${label}</span>`;
     }
   }
 
@@ -322,10 +339,10 @@ export class RaceHUD {
 
         <div class="hud-corner-controls">
           <button class="hud-pill-btn hidden" data-hud-btn="fullscreen" title="Enter Fullscreen">⛶</button>
-          <button class="hud-pill-btn" data-hud-btn="touch" title="Toggle Asphalt Touch Controls">📱 TOUCH</button>
-          <button class="hud-pill-btn" data-hud-btn="cam">📷 TV POD</button>
+          <button class="hud-pill-btn" data-hud-btn="touch" title="Toggle Asphalt Touch Controls">TOUCH</button>
+          <button class="hud-pill-btn hud-cam-btn" data-hud-btn="cam" aria-label="Change Camera View">${CAM_ICON_SVG}<span>T-CAM</span></button>
           <button class="hud-pill-btn" data-hud-btn="mute">🔊</button>
-          <button class="hud-pill-btn" data-hud-btn="pause">⏸ Esc</button>
+          <button class="hud-pill-btn hud-pause-btn" data-hud-btn="pause" aria-label="Pause Race">${PAUSE_ICON_SVG}<span>Esc</span></button>
         </div>
 
         <!-- Asphalt-Style Mobile On-Screen Touch Controls (Big ◀ ▶ Buttons or Analog Wheel + Boost / Brake) -->
@@ -353,8 +370,7 @@ export class RaceHUD {
           </div>
           <div class="touch-right-zone">
             <div class="touch-quick-row">
-              <button class="touch-mini-pill" data-touch="pit">BOX</button>
-              <button class="touch-mini-pill" data-touch="reset">↺</button>
+              <button class="touch-mini-pill" data-touch="pit" aria-label="Box This Lap">BOX</button>
             </div>
             <div class="touch-pedal-row">
               <button class="touch-brake-btn" data-touch="brake">
@@ -425,7 +441,7 @@ export class RaceHUD {
               <div class="pause-time-cell"><span>BEST LAP</span><strong style="color:#e879f9;" data-hud="pause-best-lap">--:--.---</strong></div>
             </div>
             <p class="pause-desktop-hint" style="font-size:13px;color:var(--text-muted);">
-              W/S Gas & Brake • A/D Steer • Space Boost • C Camera • P Pit Box • R Track Reset
+              W/S Gas &amp; Brake • A/D Steer • Space Boost • C Camera • P Pit Box
             </p>
             <p class="pause-mobile-hint" style="font-size:13px;color:var(--text-muted);">
               Tap ◀ ▶ to steer • Hold BRAKE for sharp corners • Tap ⚡ BOOST on straights
@@ -478,6 +494,7 @@ export class RaceHUD {
     this.pauseLastLapEl = q('[data-hud="pause-last-lap"]');
     this.pauseBestLapEl = q('[data-hud="pause-best-lap"]');
     this.touchLayerEl = q('[data-hud="touch-layer"]');
+    this.touchPitBtnEl = q('[data-touch="pit"]');
     this.touchBrakeBtnEl = q('[data-touch="brake"]');
     this.touchBoostBtnEl = q('[data-touch="boost"]');
     this.touchBoostPctEl = q('[data-touch="boost-pct"]');
@@ -631,8 +648,7 @@ export class RaceHUD {
     bindHoldButton(q('[data-touch="brake"]'), (down) => this.callbacks.onTouchBrake(down));
     bindHoldButton(this.touchBoostBtnEl, (down) => this.callbacks.onTouchBoost(down));
 
-    q('[data-touch="pit"]').addEventListener('click', () => this.callbacks.onTouchPit());
-    q('[data-touch="reset"]').addEventListener('click', () => this.callbacks.onTouchReset());
+    this.touchPitBtnEl.addEventListener('click', () => this.callbacks.onTouchPit());
 
     this.builtDom = true;
     this.syncSteerModeUI();
@@ -812,6 +828,10 @@ export class RaceHUD {
       : pCar.inPitLane
         ? 'PIT LIMITER 80'
         : 'BOX THIS LAP';
+
+    const boxActive = pCar.pitRequested || pCar.inPitLane;
+    this.touchPitBtnEl.classList.toggle('active', boxActive);
+    this.touchPitBtnEl.textContent = pCar.inPitLane ? 'IN PIT' : boxActive ? 'BOX ●' : 'BOX';
 
     this.renderMinimap(race);
   }

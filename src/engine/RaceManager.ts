@@ -8,7 +8,6 @@ import {
 import { AIDriver, type AIDifficulty } from './AIDriver';
 import {
   createInitialCarState,
-  resetCarToTrack,
   resolveCarCollisions,
   stepCarPhysics,
   type AssistConfig,
@@ -426,10 +425,6 @@ export class RaceManager {
     };
 
     const prevRadioTs = this.radio?.timestampMs ?? -1;
-
-    if (playerInput.resetPressed) {
-      resetCarToTrack(this.getPlayerCar(), this.track);
-    }
 
     // Countdown 5-red-lights sequence
     if (this.phase === 'countdown') {

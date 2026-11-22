@@ -15,6 +15,7 @@ import {
 } from '../data/teamsAndDrivers';
 import { CameraRig } from './CameraRig';
 import { buildF1CarMesh, type CarMeshRig } from './CarMeshBuilder';
+import { drawFlagOnCanvas } from '../ui/flagIcons';
 
 type EnvKey = AtmospherePreset | 'showroom';
 
@@ -814,13 +815,14 @@ export class SceneManager {
         ctx.fillText(driver.code, 192, 246);
       }
 
-      // Bottom driver name & constructor bar
+      // Bottom driver flag, name & constructor bar (drawn via Canvas primitives so Windows renders flags cleanly)
       ctx.fillStyle = '#090D16';
       ctx.fillRect(10, 412, 364, 90);
+      drawFlagOnCanvas(ctx, driver.flag, 24, 430, 34, 22);
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = '900 30px "Titillium Web", "Arial Black", sans-serif';
+      ctx.font = '900 26px "Titillium Web", "Arial Black", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`${driver.flag} ${driver.name.toUpperCase()}`, 192, 444);
+      ctx.fillText(driver.name.toUpperCase(), 210, 444);
       ctx.fillStyle = trimColor;
       ctx.font = '800 20px "Titillium Web", Arial, sans-serif';
       ctx.fillText(team.shortName.toUpperCase(), 192, 480);

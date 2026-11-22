@@ -223,7 +223,17 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     const fs = await loadFs();
     const sw = fs.readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf-8');
     expect(sw).toMatch(/f1-2026-world-tour-v\d+/);
-    expect(sw).toContain('f1-2026-world-tour-v10');
+    expect(sw).toContain('f1-2026-world-tour-v11');
+    const html = fs.readFileSync(new URL('../../index.html', import.meta.url), 'utf-8');
+    expect(html).toContain('<title>F1 2026 World Tour</title>');
+    expect(html).not.toContain('Yahia');
+    expect(html).not.toContain('Mariam');
+    const manifest = fs.readFileSync(
+      new URL('../../public/manifest.webmanifest', import.meta.url),
+      'utf-8',
+    );
+    expect(manifest).not.toContain('Yahia');
+    expect(manifest).not.toContain('Mariam');
     for (const name of [
       'yahia-mercedes.png',
       'yahia-redbull.png',
@@ -247,18 +257,33 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     expect(setupHtml).toContain('BAS On');
     expect(setupHtml).toContain('BAS Off');
 
-    // Decoupled toggle check: turning Easy Drive (steeringAssist) OFF leaves BAS (brakingAssist) ON, and vice versa
+    // Defaults: User Assist (Easy Drive) OFF, BAS ON; both toggle independently
+    expect(menu.assists.steeringAssist).toBe(false);
+    expect(menu.assists.brakingAssist).toBe(true);
+    findOpt('steerAssist', 'true')?.click();
     expect(menu.assists.steeringAssist).toBe(true);
     expect(menu.assists.brakingAssist).toBe(true);
-    findOpt('steerAssist', 'false')?.click();
-    expect(menu.assists.steeringAssist).toBe(false);
-    expect(menu.assists.brakingAssist).toBe(true);
     findOpt('brakeAssist', 'false')?.click();
-    expect(menu.assists.steeringAssist).toBe(false);
+    expect(menu.assists.steeringAssist).toBe(true);
     expect(menu.assists.brakingAssist).toBe(false);
+    findOpt('steerAssist', 'false')?.click();
     findOpt('brakeAssist', 'true')?.click();
     expect(menu.assists.steeringAssist).toBe(false);
     expect(menu.assists.brakingAssist).toBe(true);
+
+    // Cross-platform SVG country flags render on both Setup circuit cards & Driver Select (never bare Windows-broken emoji)
+    expect(setupHtml).toContain('<svg class="country-flag-icon" data-flag="AT"');
+    expect(setupHtml).toContain('<svg class="country-flag-icon" data-flag="IT"');
+    expect(setupHtml).toContain('<svg class="country-flag-icon" data-flag="GB"');
+    expect(setupHtml).toContain('<svg class="country-flag-icon" data-flag="US"');
+    menu.screen = 'driver';
+    menu.show();
+    const driverHtml = getHtml();
+    for (const iso of ['EG', 'IT', 'NL', 'GB', 'AU', 'FR', 'MC', 'NZ']) {
+      expect(driverHtml).toContain(`<svg class="country-flag-icon" data-flag="${iso}"`);
+    }
+    expect(driverHtml).not.toContain('🇪🇬');
+    expect(driverHtml).not.toContain('🇬🇧');
 
     // Render race results with penalty downgrade P1 -> P2 and player lap times
     const mockResults = ALL_DRIVERS.slice(0, 4).map((driver, idx) => {
@@ -431,5 +456,20 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     expect(getEl('[data-hud="pause-last-lap"]').textContent).toBe('1:08.000');
     expect(getEl('[data-hud="pause-best-lap"]').textContent).toBe('1:07.500');
     expect(getEl('[data-hud-btn="pause-bas"]').textContent).toBe('🛑 BAS (Brake Assist): ON');
+
+    // Track Reset pill & emoji camera icon removed; crisp SVG camera/pause buttons & glowing BOX pill active
+    expect(root.innerHTML).not.toContain('data-touch="reset"');
+    expect(root.innerHTML).not.toContain('📷');
+    expect(getEl('[data-hud-btn="cam"]').innerHTML).toContain('hud-btn-icon');
+    expect(getEl('[data-hud-btn="cam"]').innerHTML).toContain('CHASE');
+
+    const pitBtn = getEl('[data-touch="pit"]');
+    expect(pitBtn.classList.contains('active')).toBe(false);
+    expect(pitBtn.textContent).toBe('BOX');
+
+    pCar.pitRequested = true;
+    hud.update(race);
+    expect(pitBtn.classList.contains('active')).toBe(true);
+    expect(pitBtn.textContent).toBe('BOX ●');
   });
 });
