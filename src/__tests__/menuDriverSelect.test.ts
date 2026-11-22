@@ -223,7 +223,7 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     const fs = await loadFs();
     const sw = fs.readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf-8');
     expect(sw).toMatch(/f1-2026-world-tour-v\d+/);
-    expect(sw).toContain('f1-2026-world-tour-v11');
+    expect(sw).toContain('f1-2026-world-tour-v12');
     const html = fs.readFileSync(new URL('../../index.html', import.meta.url), 'utf-8');
     expect(html).toContain('<title>F1 2026 World Tour</title>');
     expect(html).not.toContain('Yahia');
@@ -248,7 +248,7 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
   });
 
   it('renders BAS On/BAS Off setup toggle and mobile-ready results timing summary with penalty downgrade & lap chips', () => {
-    const { menu, findOpt, getHtml } = createMenuHarness();
+    const { menu, findAction, findOpt, getHtml } = createMenuHarness();
     menu.screen = 'setup';
     menu.show();
     const setupHtml = getHtml();
@@ -313,6 +313,22 @@ describe('MenuUI — Flex Driver Portraits & Independent Seat State', () => {
     expect(resHtml).toContain('results-table-wrap');
     expect(resHtml).toContain('col-constructor');
     expect(resHtml).toContain('col-pits');
+    expect(resHtml).toContain('PODIUM FINISH!');
+    expect(resHtml).toContain('Full 3D Stage');
+    expect(resHtml).not.toContain('📊');
+    expect(resHtml).not.toContain('🎉');
+    expect(resHtml).not.toContain('🥂');
+    expect(resHtml).not.toContain('CHAMPAGNE');
+
+    // Switching to Full 3D Stage renders clean Official Classification button without ugly icons/champagne
+    findAction('toggle-podium-cinema')?.click();
+    const cinemaHtml = getHtml();
+    expect(cinemaHtml).toContain('GRAND PRIX PODIUM • LIVE 3D CEREMONY');
+    expect(cinemaHtml).toContain('Official Classification');
+    expect(cinemaHtml).not.toContain('📊');
+    expect(cinemaHtml).not.toContain('🎉');
+    expect(cinemaHtml).not.toContain('🥂');
+    expect(cinemaHtml).not.toContain('CHAMPAGNE');
 
     menu.destroy();
   });

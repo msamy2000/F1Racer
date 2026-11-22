@@ -660,7 +660,7 @@ export class MenuUI {
         : playerRes && playerRes.position === 1
           ? `🏆 ${playerRes.driver.name.toUpperCase()} WINS THE ${gpName.toUpperCase()}!`
           : playerRes && playerRes.position <= 3
-            ? `🥂 PODIUM CELEBRATION! ${playerRes.driver.name.toUpperCase()} FINISHES P${playerRes.position}!`
+            ? `PODIUM FINISH! ${playerRes.driver.name.toUpperCase()} FINISHES P${playerRes.position}!`
             : `🏁 ${winnerRes ? winnerRes.driver.name.toUpperCase() : 'RACE'} WINS THE ${gpName.toUpperCase()}`;
 
     let playerTimingHtml = '';
@@ -774,11 +774,11 @@ export class MenuUI {
       return `
         <div class="podium-cinema-overlay">
           <div class="podium-hero-banner">
-            <div class="brand-sub" style="color:#FFD700;">CHAMPAGNE & TROPHIES • LIVE 3D PODIUM CEREMONY</div>
+            <div class="brand-sub" style="color:#FFD700;">GRAND PRIX PODIUM • LIVE 3D CEREMONY</div>
             <div class="podium-hero-title">${heroHeadline}</div>
           </div>
           <div class="podium-cinema-dock">
-            <button class="btn-secondary" data-action="toggle-podium-cinema">📊 Official Classification</button>
+            <button class="btn-secondary" data-action="toggle-podium-cinema">Official Classification</button>
             <button class="btn-secondary" data-action="back-home">Main Menu</button>
             <button class="btn-primary" data-action="rematch">Race Again</button>
           </div>
@@ -795,7 +795,7 @@ export class MenuUI {
               <div class="podium-hero-title">${heroHeadline}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn-secondary" data-action="toggle-podium-cinema">🎉 Full 3D Stage</button>
+              <button class="btn-secondary" data-action="toggle-podium-cinema">Full 3D Stage</button>
               <button class="btn-secondary" data-action="back-home">Main Menu</button>
               <button class="btn-primary" data-action="rematch">Race Again</button>
             </div>

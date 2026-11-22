@@ -6,7 +6,7 @@ import { createInitialCarState } from '../engine/CarPhysics';
 import { TrackSpline } from '../engine/TrackSpline';
 import { buildF1CarMesh, buildGhostCarMesh } from '../rendering/CarMeshBuilder';
 import { EffectsManager } from '../rendering/EffectsManager';
-import { buildPodiumDriverCharacter, resolvePodiumDrivers } from '../rendering/SceneManager';
+import { buildPodiumTrophyMesh, resolvePodiumDrivers } from '../rendering/SceneManager';
 
 function withMockCanvas<T>(fn: () => T): T {
   const prevDoc = (globalThis as { document?: unknown }).document;
@@ -213,7 +213,7 @@ describe('CarMeshBuilder & EffectsManager — 2026 Rig, Cockpit & Zero-GC Effect
     fx.dispose();
   });
 
-  it('builds all 12 visible F1 grid cars independently and creates 3 articulated podium driver characters', () => {
+  it('builds all 12 visible F1 grid cars independently and creates 3 sculpted Grand Prix podium trophies', () => {
     withMockCanvas(() => {
       const rbr = new TrackSpline(CIRCUITS['red-bull-ring']);
       const rigs = ALL_DRIVERS.map((drv, idx) => {
@@ -247,23 +247,16 @@ describe('CarMeshBuilder & EffectsManager — 2026 Rig, Cockpit & Zero-GC Effect
         rigs[i].rig.dispose();
       }
 
-      // Podium ceremony resolves 3 distinct drivers and constructs P1/P2/P3 articulated characters
+      // Podium ceremony resolves 3 distinct drivers and constructs P1/P2/P3 sculpted metallic trophies
       const podiumDrivers = resolvePodiumDrivers(YAHIA_DRIVER);
       expect(new Set(podiumDrivers.map((d) => d.id)).size).toBe(3);
 
       const trimByRank = ['#FFD700', '#CBD5E1', '#D97706'] as const;
       (['1', '2', '3'] as const).forEach((rank, idx) => {
-        const pRig = buildPodiumDriverCharacter(
-          podiumDrivers[idx],
-          'mercedes',
-          rank,
-          trimByRank[idx],
-          1.6 - idx * 0.4,
-        );
-        expect(pRig.group.name).toBe(`podium-driver-${rank}`);
-        expect(pRig.rightArm.children.length).toBeGreaterThanOrEqual(4); // shoulder, upper, glove + trophy
-        expect(pRig.leftArm.children.length).toBeGreaterThanOrEqual(4); // shoulder, upper, glove + champagne bottle
-        expect(pRig.trophyGroup.children.length).toBe(4);
+        const trophy = buildPodiumTrophyMesh(rank, trimByRank[idx]);
+        expect(trophy.name).toBe(`podium-trophy-${rank}`);
+        // Plinth, collar trim, fluted stem, chalice cup, laurel crown + twin handles
+        expect(trophy.children.length).toBe(7);
       });
     });
   });

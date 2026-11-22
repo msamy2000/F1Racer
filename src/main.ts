@@ -285,6 +285,7 @@ const hud = new RaceHUD(hudLayer, {
     hud.hide();
     cleanupActiveSession();
     sceneManager.enterPodiumCeremony(p1Driver, finishedSettings.yahiaTeamId, pColors, [p1Driver]);
+    audio.playPodiumCelebration(true);
     menuUI.showResults(ttResults, null, playerLaps, true);
   },
 });

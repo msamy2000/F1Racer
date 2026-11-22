@@ -8,7 +8,6 @@ import type { AtmospherePreset } from '../data/circuits';
 import {
   ALL_DRIVERS,
   getDriverPortraitPath,
-  resolveDriverHelmet,
   resolveDriverTeam,
   type DriverConfig,
   type TeamId,
@@ -76,15 +75,6 @@ interface CachedHdri {
   envRt: THREE.WebGLRenderTarget;
 }
 
-export interface PodiumCharacterRig {
-  group: THREE.Group;
-  rightArm: THREE.Group;
-  leftArm: THREE.Group;
-  trophyGroup: THREE.Group;
-  baseY: number;
-  phase: number;
-}
-
 /** Resolves a complete 3-driver podium lineup [P1, P2, P3] even when called from 1-car Time Trial. */
 export function resolvePodiumDrivers(
   winnerDriver: DriverConfig,
@@ -108,64 +98,10 @@ export function resolvePodiumDrivers(
 }
 
 /**
- * Builds an articulated 3D Grand Prix podium driver character standing in team Nomex racing suit,
- * boots, gloves, and helmet — hoisting the metallic trophy in their right hand and holding a
- * champagne magnum bottle in their left hand.
+ * Builds a sculpted 3D metallic Grand Prix championship trophy (Gold/Silver/Bronze)
+ * on an anodized dark weighted plinth for display alongside each driver's portrait monolith.
  */
-export function buildPodiumDriverCharacter(
-  driver: DriverConfig,
-  yahiaTeamId: TeamId,
-  rank: '1' | '2' | '3',
-  trimColor: string,
-  baseY = 0,
-): PodiumCharacterRig {
-  const team = resolveDriverTeam(driver, yahiaTeamId);
-  const helmet = resolveDriverHelmet(driver, yahiaTeamId);
-
-  const suitPrimaryMat = new THREE.MeshStandardMaterial({
-    color: team.primaryColor,
-    roughness: 0.56,
-    metalness: 0.08,
-  });
-  const suitSecondaryMat = new THREE.MeshStandardMaterial({
-    color: team.secondaryColor,
-    roughness: 0.48,
-    metalness: 0.14,
-  });
-  const suitAccentMat = new THREE.MeshStandardMaterial({
-    color: team.accentColor,
-    roughness: 0.42,
-    metalness: 0.2,
-  });
-  const gearDarkMat = new THREE.MeshStandardMaterial({
-    color: '#11151E',
-    roughness: 0.65,
-    metalness: 0.15,
-  });
-  const whiteTrimMat = new THREE.MeshStandardMaterial({
-    color: '#F8FAFC',
-    roughness: 0.45,
-    metalness: 0.1,
-  });
-  const helmetShellMat = new THREE.MeshPhysicalMaterial({
-    color: helmet.shell,
-    metalness: 0.42,
-    roughness: 0.14,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.06,
-  });
-  const helmetStripeMat = new THREE.MeshPhysicalMaterial({
-    color: helmet.stripe,
-    metalness: 0.55,
-    roughness: 0.16,
-    clearcoat: 0.9,
-  });
-  const visorMat = new THREE.MeshPhysicalMaterial({
-    color: helmet.visor,
-    metalness: 0.94,
-    roughness: 0.06,
-    clearcoat: 1.0,
-  });
+export function buildPodiumTrophyMesh(rank: '1' | '2' | '3', trimColor: string): THREE.Group {
   const trophyMat = new THREE.MeshPhysicalMaterial({
     color: trimColor,
     metalness: 0.96,
@@ -173,144 +109,46 @@ export function buildPodiumDriverCharacter(
     clearcoat: 1.0,
     envMapIntensity: 2.0,
   });
-  const trophyPedMat = new THREE.MeshStandardMaterial({
+  const plinthMat = new THREE.MeshStandardMaterial({
     color: '#141926',
-    metalness: 0.65,
-    roughness: 0.25,
-  });
-  const bottleGlassMat = new THREE.MeshPhysicalMaterial({
-    color: '#144524',
-    metalness: 0.22,
-    roughness: 0.14,
-    clearcoat: 1.0,
-  });
-  const bottleGoldMat = new THREE.MeshStandardMaterial({
-    color: '#FFD700',
-    metalness: 0.88,
-    roughness: 0.2,
+    metalness: 0.72,
+    roughness: 0.24,
   });
 
   const group = new THREE.Group();
-  group.name = `podium-driver-${rank}`;
+  group.name = `podium-trophy-${rank}`;
 
-  // Legs + Racing Boots (standing firmly at y = 0..0.82)
-  for (const side of [-1, 1] as const) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.072, 0.72, 12), suitPrimaryMat);
-    leg.position.set(side * 0.115, 0.44, 0);
-    leg.castShadow = true;
-    const kneeStripe = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.62, 0.11), suitSecondaryMat);
-    kneeStripe.position.set(side * 0.165, 0.46, 0);
-    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.23), gearDarkMat);
-    boot.position.set(side * 0.115, 0.055, 0.045);
-    boot.castShadow = true;
-    const bootSole = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.025, 0.235), whiteTrimMat);
-    bootSole.position.set(side * 0.115, 0.012, 0.045);
-    group.add(leg, kneeStripe, boot, bootSole);
-  }
+  const basePlinth = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.14, 24), plinthMat);
+  basePlinth.position.y = 0.07;
+  basePlinth.castShadow = true;
 
-  // Torso Nomex Suit + Team Chest Stripes + Sponsor Panel + Waist Belt
-  const hips = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 0.22), suitPrimaryMat);
-  hips.position.set(0, 0.82, 0);
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.395, 0.065, 0.235), suitAccentMat);
-  belt.position.set(0, 0.89, 0);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.48, 0.24), suitPrimaryMat);
-  torso.position.set(0, 1.14, 0);
-  torso.castShadow = true;
-  const chestYoke = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.16, 0.246), suitSecondaryMat);
-  chestYoke.position.set(0, 1.29, 0);
-  const chestStripe = new THREE.Mesh(new THREE.BoxGeometry(0.435, 0.045, 0.25), suitAccentMat);
-  chestStripe.position.set(0, 1.18, 0);
-  const sponsorBadge = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.09, 0.02), whiteTrimMat);
-  sponsorBadge.position.set(0, 1.11, 0.125);
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.105, 0.08, 12), suitAccentMat);
-  collar.position.set(0, 1.41, 0);
-  group.add(hips, belt, torso, chestYoke, chestStripe, sponsorBadge, collar);
+  const plinthTrim = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.185, 0.024, 24), trophyMat);
+  plinthTrim.position.y = 0.145;
 
-  // Driver Helmet + Stripe + Visor (+ Winner Gold Cap Crest on P1)
-  const helmetGroup = new THREE.Group();
-  helmetGroup.position.set(0, 1.56, 0);
-  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.152, 20, 16), helmetShellMat);
-  shell.scale.set(0.95, 1.04, 1.1);
-  shell.castShadow = true;
-  const hStripe = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.17, 0.29), helmetStripeMat);
-  hStripe.position.set(0, 0.052, 0);
-  const visor = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.154, 0.154, 0.07, 18, 1, true, -0.82, 1.64),
-    visorMat,
-  );
-  visor.position.set(0, 0.014, 0.024);
-  helmetGroup.add(shell, hStripe, visor);
-  if (rank === '1') {
-    const crownBand = new THREE.Mesh(new THREE.TorusGeometry(0.158, 0.015, 8, 24), bottleGoldMat);
-    crownBand.rotation.x = Math.PI / 2 - 0.15;
-    crownBand.position.set(0, 0.08, 0);
-    helmetGroup.add(crownBand);
-  }
-  group.add(helmetGroup);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.092, 0.34, 18), trophyMat);
+  stem.position.y = 0.325;
+  stem.castShadow = true;
 
-  // Right Arm (Shoulder + Forearm + Glove) Raised Hoisting the Grand Prix Trophy!
-  const rightArm = new THREE.Group();
-  rightArm.position.set(-0.26, 1.33, 0);
-  rightArm.rotation.x = rank === '1' ? -2.28 : -1.85;
-  rightArm.rotation.z = -0.22;
-  const rShoulder = new THREE.Mesh(new THREE.SphereGeometry(0.068, 10, 8), suitSecondaryMat);
-  const rUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.44, 10), suitPrimaryMat);
-  rUpper.position.set(0, -0.22, 0);
-  const rGlove = new THREE.Mesh(new THREE.SphereGeometry(0.056, 10, 8), gearDarkMat);
-  rGlove.position.set(0, -0.45, 0);
-  rightArm.add(rShoulder, rUpper, rGlove);
+  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.095, 0.38, 24), trophyMat);
+  cup.position.y = 0.68;
+  cup.castShadow = true;
 
-  // Sculpted 3D Metallic Grand Prix Trophy Held High in Right Hand
-  const trophyGroup = new THREE.Group();
-  trophyGroup.position.set(0, -0.52, 0.12);
-  trophyGroup.rotation.x = -(rank === '1' ? -2.28 : -1.85);
-  const basePed = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.09, 16), trophyPedMat);
-  basePed.position.y = 0.045;
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.058, 0.22, 14), trophyMat);
-  stem.position.y = 0.2;
-  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.072, 0.26, 20), trophyMat);
-  cup.position.y = 0.42;
-  const crown = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.018, 8, 20), trophyMat);
+  const crown = new THREE.Mesh(new THREE.TorusGeometry(0.225, 0.024, 10, 28), trophyMat);
   crown.rotation.x = Math.PI / 2;
-  crown.position.y = 0.54;
-  trophyGroup.add(basePed, stem, cup, crown);
-  if (rank === '1') trophyGroup.scale.set(1.18, 1.24, 1.18);
-  rightArm.add(trophyGroup);
-  group.add(rightArm);
+  crown.position.y = 0.865;
 
-  // Left Arm Aiming a 3D Magnum Champagne Bottle Forward toward the Crowd
-  const leftArm = new THREE.Group();
-  leftArm.position.set(0.26, 1.33, 0);
-  leftArm.rotation.x = -1.22;
-  leftArm.rotation.z = rank === '2' ? -0.18 : rank === '3' ? 0.18 : 0.05;
-  const lShoulder = new THREE.Mesh(new THREE.SphereGeometry(0.068, 10, 8), suitSecondaryMat);
-  const lUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.44, 10), suitPrimaryMat);
-  lUpper.position.set(0, -0.22, 0);
-  const lGlove = new THREE.Mesh(new THREE.SphereGeometry(0.056, 10, 8), gearDarkMat);
-  lGlove.position.set(0, -0.45, 0);
-  leftArm.add(lShoulder, lUpper, lGlove);
+  for (const side of [-1, 1] as const) {
+    const handle = new THREE.Mesh(
+      new THREE.TorusGeometry(0.115, 0.018, 8, 18, Math.PI),
+      trophyMat,
+    );
+    handle.rotation.z = side * (Math.PI / 2);
+    handle.position.set(side * 0.19, 0.69, 0);
+    group.add(handle);
+  }
 
-  const bottle = new THREE.Group();
-  bottle.position.set(0, -0.52, 0.06);
-  bottle.rotation.x = -0.35;
-  const bottleBody = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.056, 0.24, 12), bottleGlassMat);
-  bottleBody.position.y = 0.06;
-  const bottleFoil = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.048, 0.14, 12), bottleGoldMat);
-  bottleFoil.position.y = 0.24;
-  const bottleLabel = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.054, 0.09, 12), whiteTrimMat);
-  bottleLabel.position.y = 0.06;
-  bottle.add(bottleBody, bottleFoil, bottleLabel);
-  leftArm.add(bottle);
-  group.add(leftArm);
-
-  return {
-    group,
-    rightArm,
-    leftArm,
-    trophyGroup,
-    baseY,
-    phase: rank === '1' ? 0 : rank === '2' ? 1.4 : 2.8,
-  };
+  group.add(basePlinth, plinthTrim, stem, cup, crown);
+  return group;
 }
 
 export class SceneManager {
@@ -333,18 +171,9 @@ export class SceneManager {
   private podiumGroup: THREE.Group | null = null;
   private podiumCar: CarMeshRig | null = null;
   private podiumTrophies: THREE.Object3D[] = [];
-  private podiumCharacters: {
-    group: THREE.Group;
-    rightArm: THREE.Group;
-    leftArm: THREE.Group;
-    baseY: number;
-    phase: number;
-  }[] = [];
   private podiumBeams: THREE.Object3D[] = [];
   private podiumConfettiMesh: THREE.InstancedMesh | null = null;
   private podiumConfettiData: { x: number; y: number; z: number; vy: number; phase: number; speed: number }[] = [];
-  private podiumChampagneMesh: THREE.InstancedMesh | null = null;
-  private podiumChampagneData: { originX: number; originY: number; originZ: number; vx: number; vy: number; vz: number; t: number; life: number }[] = [];
   private podiumTextures: THREE.Texture[] = [];
   private podiumDummy = new THREE.Object3D();
   private activeWorldGroup: THREE.Group | null = null;
@@ -1000,7 +829,7 @@ export class SceneManager {
       pillar.position.set(sc.x, 2.45, -3.82);
       grp.add(pillar);
 
-      // Illuminated 3D Driver Portrait & Name Broadcast Plaque mounted right behind the driver
+      // Illuminated Photorealistic Driver Portrait Monolith centered atop the podium step
       const portraitTex = this.createPodiumDriverPlaqueTexture(
         sc.driver,
         yahiaTeamId,
@@ -1008,31 +837,63 @@ export class SceneManager {
         sc.trim,
       );
       const portraitFrame = new THREE.Mesh(
-        new THREE.BoxGeometry(1.48, 1.96, 0.08),
+        new THREE.BoxGeometry(1.68, 2.22, 0.14),
         new THREE.MeshStandardMaterial({
           map: portraitTex,
           emissiveMap: portraitTex,
           emissive: '#FFFFFF',
-          emissiveIntensity: 0.78,
-          roughness: 0.28,
+          emissiveIntensity: 0.82,
+          roughness: 0.24,
         }),
       );
       portraitFrame.name = `podium-plaque-${sc.rank}`;
-      portraitFrame.position.set(sc.x, sc.h + 1.24, -3.52);
+      portraitFrame.position.set(sc.x, sc.h + 1.18, -2.68);
       grp.add(portraitFrame);
 
-      // Articulated 3D Driver Character standing proudly atop their podium step
-      const driverRig = buildPodiumDriverCharacter(
-        sc.driver,
-        yahiaTeamId,
-        sc.rank,
-        sc.trim,
-        sc.h + 0.05,
+      // Championship anodized pedestal base + team-colored glowing side trim bars
+      const monolithBase = new THREE.Mesh(
+        new THREE.BoxGeometry(1.78, 0.08, 0.34),
+        new THREE.MeshStandardMaterial({
+          color: '#141926',
+          metalness: 0.78,
+          roughness: 0.24,
+        }),
       );
-      driverRig.group.position.set(sc.x, driverRig.baseY, -2.35);
-      grp.add(driverRig.group);
-      this.podiumCharacters.push(driverRig);
-      this.podiumTrophies.push(driverRig.trophyGroup);
+      monolithBase.position.set(sc.x, sc.h + 0.08, -2.68);
+      grp.add(monolithBase);
+
+      const trimBarMat = new THREE.MeshStandardMaterial({
+        color: sc.teamCol,
+        emissive: sc.teamCol,
+        emissiveIntensity: 1.45,
+      });
+      for (const side of [-1, 1] as const) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.26, 0.18), trimBarMat);
+        bar.position.set(sc.x + side * 0.87, sc.h + 1.18, -2.68);
+        grp.add(bar);
+      }
+
+      const monolithCrown = new THREE.Mesh(
+        new THREE.BoxGeometry(1.82, 0.07, 0.18),
+        new THREE.MeshStandardMaterial({
+          color: sc.trim,
+          emissive: sc.trim,
+          emissiveIntensity: 0.85,
+          metalness: 0.9,
+          roughness: 0.2,
+        }),
+      );
+      monolithCrown.position.set(sc.x, sc.h + 2.31, -2.68);
+      grp.add(monolithCrown);
+
+      // Sculpted rotating metallic Grand Prix Trophy placed at the front corner of each step
+      const trophy = buildPodiumTrophyMesh(sc.rank, sc.trim);
+      if (sc.rank === '1') {
+        trophy.scale.setScalar(1.22);
+      }
+      trophy.position.set(sc.x + (sc.rank === '3' ? -0.68 : 0.68), sc.h + 0.08, -1.78);
+      grp.add(trophy);
+      this.podiumTrophies.push(trophy);
     }
 
     // 3. Illuminated Grand Prix Podium Backdrop Arch raised cleanly above P1 trophy & plaques
@@ -1105,40 +966,6 @@ export class SceneManager {
     grp.add(confettiMesh);
     this.podiumConfettiMesh = confettiMesh;
 
-    // 7. 140 Animated 3D Champagne Spray Droplets arcing from the P1, P2 & P3 drivers' magnum bottles
-    const dropCount = 140;
-    const dropGeo = new THREE.SphereGeometry(0.036, 6, 6);
-    const dropMat = new THREE.MeshBasicMaterial({
-      color: '#FFF8DC',
-      transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const champagneMesh = new THREE.InstancedMesh(dropGeo, dropMat, dropCount);
-    this.podiumChampagneData = [];
-    const spraySources: [number, number, number, number][] = [
-      [0.26, 3.05, -1.78, 0],        // P1 bottle nozzle
-      [-2.19, 2.55, -1.78, 0.38],    // P2 bottle nozzle arcing inward
-      [2.71, 2.22, -1.78, -0.38],    // P3 bottle nozzle arcing inward
-    ];
-    for (let i = 0; i < dropCount; i++) {
-      const [ox, oy, oz, biasX] = spraySources[i % spraySources.length];
-      const life = 0.75 + Math.random() * 0.65;
-      this.podiumChampagneData.push({
-        originX: ox,
-        originY: oy,
-        originZ: oz,
-        vx: biasX * 2.6 + (Math.random() - 0.5) * 1.5,
-        vy: 2.8 + Math.random() * 2.4,
-        vz: 1.8 + Math.random() * 2.2,
-        t: Math.random() * life,
-        life,
-      });
-    }
-    grp.add(champagneMesh);
-    this.podiumChampagneMesh = champagneMesh;
-
     this.scene.add(grp);
   }
 
@@ -1153,12 +980,9 @@ export class SceneManager {
     }
     this.podiumTextures = [];
     this.podiumTrophies = [];
-    this.podiumCharacters = [];
     this.podiumBeams = [];
     this.podiumConfettiMesh = null;
     this.podiumConfettiData = [];
-    this.podiumChampagneMesh = null;
-    this.podiumChampagneData = [];
 
     if (this.podiumGroup) {
       this.scene.remove(this.podiumGroup);
@@ -1177,19 +1001,9 @@ export class SceneManager {
   }
 
   private updatePodiumAnimations(clockSec: number): void {
-    // Celebrate on podium: subtle celebratory bounce, torso sway, trophy hoist & champagne shake
-    for (let i = 0; i < this.podiumCharacters.length; i++) {
-      const ch = this.podiumCharacters[i];
-      const t = clockSec * 3.2 + ch.phase;
-      ch.group.position.y = ch.baseY + Math.abs(Math.sin(t)) * 0.045;
-      ch.group.rotation.y = Math.sin(clockSec * 1.1 + ch.phase) * 0.14;
-      ch.rightArm.rotation.x = (i === 0 ? -2.28 : -1.85) + Math.sin(clockSec * 2.4 + ch.phase) * 0.16;
-      ch.leftArm.rotation.x = -1.22 + Math.sin(clockSec * 5.8 + ch.phase) * 0.14;
-    }
-
-    // Gentle celebratory turn of the hoisted trophies
+    // Showcase turn of the sculpted Gold/Silver/Bronze Grand Prix trophies
     for (let i = 0; i < this.podiumTrophies.length; i++) {
-      this.podiumTrophies[i].rotation.y = Math.sin(clockSec * 1.4 + i * 1.1) * 0.45;
+      this.podiumTrophies[i].rotation.y = clockSec * 0.85 + i * 1.1;
     }
 
     // Sway stadium searchlights
@@ -1212,26 +1026,6 @@ export class SceneManager {
         this.podiumConfettiMesh.setMatrixAt(i, dummy.matrix);
       }
       this.podiumConfettiMesh.instanceMatrix.needsUpdate = true;
-    }
-
-    // Animate sparkling champagne spray arcs with gravity
-    if (this.podiumChampagneMesh) {
-      const dummy = this.podiumDummy;
-      for (let i = 0; i < this.podiumChampagneData.length; i++) {
-        const d = this.podiumChampagneData[i];
-        const age = (d.t + clockSec) % d.life;
-        const frac = age / d.life;
-        const px = d.originX + d.vx * age;
-        const py = Math.max(0.05, d.originY + d.vy * age - 4.9 * age * age);
-        const pz = d.originZ + d.vz * age;
-        const sc = Math.max(0.15, (1 - frac) * 1.35);
-        dummy.position.set(px, py, pz);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(sc, sc, sc);
-        dummy.updateMatrix();
-        this.podiumChampagneMesh.setMatrixAt(i, dummy.matrix);
-      }
-      this.podiumChampagneMesh.instanceMatrix.needsUpdate = true;
     }
   }
 
